@@ -94,40 +94,37 @@ fn interprate_expression(exp: Exp, env: &Environment) -> Num {
 }
 
 fn main() {
-    let prog: Stm = Stm::Compound(
-        Stm::Assign(
-            "a".to_string(),
-            Exp::Op(Exp::Num(5).into(), BinOp::Plus, Exp::Num(3).into()).into(),
-        )
-        .into(),
-        Stm::Compound(
-            Stm::Assign(
-                "b".into(),
-                Exp::Eseq(
-                    Stm::Print(vec![
-                        Exp::Id("a".into()),
-                        Exp::Op(Exp::Id("a".into()).into(), BinOp::Minus, Exp::Num(1).into()),
-                    ])
-                    .into(),
-                    Exp::Op(
-                        Exp::Num(10).into(),
-                        BinOp::Times,
-                        Exp::Id("a".into()).into(),
+    let prog: Stm;
+    {
+        use BinOp::{Div, Minus, Plus, Times};
+        use Exp::{Eseq, Id, Num, Op};
+        use Stm::{Assign, Compound, Print};
+
+        prog = Compound(
+            Assign(
+                "a".to_string(),
+                Op(Num(5).into(), Plus, Num(3).into()).into(),
+            )
+            .into(),
+            Compound(
+                Assign(
+                    "b".into(),
+                    Eseq(
+                        Print(vec![
+                            Id("a".into()),
+                            Op(Id("a".into()).into(), Minus, Num(1).into()),
+                        ])
+                        .into(),
+                        Op(Num(10).into(), Times, Id("a".into()).into()).into(),
                     )
                     .into(),
                 )
                 .into(),
+                Print(vec![Op(Id("b".into()).into(), Div, Num(5).into())]).into(),
             )
             .into(),
-            Stm::Print(vec![Exp::Op(
-                Exp::Id("b".into()).into(),
-                BinOp::Div,
-                Exp::Num(5).into(),
-            )])
-            .into(),
-        )
-        .into(),
-    );
+        );
+    }
 
     println!("Should print 8, 7 on one line, then 16 on another line");
     println!("---");
