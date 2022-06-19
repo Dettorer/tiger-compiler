@@ -1,0 +1,140 @@
+<HTML>
+<head>
+<title>Errata: Modern Compiler Implementation in ML</title>
+</head>
+<body bgcolor="#FFFFFF">
+<h2><font color="#0000C0">Modern Compiler Implementation in ML</font></h2>
+&#169;1998 by <a href="http://www.cs.princeton.edu/~appel"><strong>Andrew W. Appel</strong></a><br>
+
+<h2>Errors in the first edition, 1999 printing:</h2>
+This printing may be identified by the line 
+"Reprinted with corrections, 1999"
+on page iv.
+
+<p><strong>Page 29.</strong>
+Program 2.9, at the end of the line <tt>digits=[0-9]+</tt> there
+should be semicolon.  Also, the last rule is missing a regular
+expression, which should be a dot.
+
+<p><strong>Page 31.</strong>
+At the end of the line <tt>%s COMMENT</tt> there should be a semicolon.
+In the last rule, the semicolon should be outside the parentheses.
+
+<p><strong>Page 53.</strong>
+After the sentence, "The resulting productions will not pose a problem for
+a predictive parser" add:<br>
+Although the grammar is still ambiguous -- the parsing table has two
+entries for the same slot -- we can resolve the ambiguity by using the
+"else <i>S</i>" action.
+
+<p><strong>Page 54.</strong>
+7th line from bottom: <tt>TIMES</tt> should not be in argument
+of <tt>skipto</tt>.
+
+<p><strong>Page 64.</strong> First line of left-hand box: change ampersand
+(&amp;) to $.
+
+<p><strong>Page 77.</strong> Lines 21-22 should read,<br>
+3. Discard input symbols (if necessary) until a lookahead is reached that
+has a non-error action in the current state.
+
+<p><strong>Page 95.</strong>
+On line 9 (beginning with <tt>%nonterm</tt>), each time <tt>of exp</tt>
+or <tt>of stm</tt> appears, it should be <tt>of Absyn.exp</tt>
+or <tt>of Absyn.stm</tt>, respectively.
+
+<p><strong>Page 97.</strong>
+The Tiger program shown is actually illegal, since g is declared to return
+no value but its body returns the value f().
+
+<p><strong>Page 116.</strong>
+10th line from the bottom, 
+<tt> exp=(), ty=Types.INT))</tt> should be<br>
+<tt> {exp=(), ty=Types.INT}))</tt>.
+
+
+<p><strong>Page 118.</strong>
+Line 17, <tt>[{name,ty}]</tt> should be <tt>[{name,ty,pos}]</tt>.
+
+
+<p><strong>Page 137.</strong>
+Table 6.4.  The MIPS column of the table uses registers r2, r4, r5 for
+passing parameters.  The use of r2 for the "zeroth parameter" is 
+consistent with the MIPS convention of passing the static link in
+r2; the argument <i>x</i><sub>1</sub>, by this point in the
+compilation, is really the static link.
+
+<p><strong>Page 144.</strong>
+Line 6 should refer to <tt>$TIGER/chap7</tt>, not
+<tt>$TIGER/chap6</tt>.
+
+
+<p><strong>Page 175.</strong>
+11th line from bottom, change "whether two expressions commute" to "whether a 
+statement commutes with an expression".
+
+<p><strong>Page 215.</strong>
+Table 10.5 in the 4th iteration, 
+the <i>out</i> set for statement 3 is <i>c</i>, when it should be <i>b</i>.
+
+<p><strong>Page 235.</strong>
+Assignment statements on line 19 should say, <br>
+<i>t</i>:=<i>M</i>[<i>b</i><sub>loc</sub>]; 
+<i>M</i>[<i>a</i><sub>loc</sub>]:=<i>t</i>.
+
+<p><strong>Page 237.</strong> Figure 11.7, captions (a) and (b) are missing.
+
+<p><strong>Page 239.</strong> Last sentence, swap "afterward" and "beforehand".
+
+<p><strong>Page 242.</strong> Delete last bullet item entirely 
+("When <i>u</i> is coalesced ...").
+
+<p><strong>Page 248.</strong>
+Line 8, change all three occurrences of "nodeMoves" to "moveList".<br>
+Insert new line,  "EnableMoves(v)".
+
+<p><strong>Page 262.</strong> Figure 12.1, line 15 should refer
+to <tt>Temp.label</tt>, not <tt>Tree.label</tt>.
+
+<p><strong>Page 271.</strong> Algorithm 13.5, after second line, insert:<br>
+mark <i>x</i>
+
+<p><strong>Page 366.</strong>
+8th line from bottom, delete the word "not".
+
+<p><strong>Page 428.</strong>
+11th line from bottom, change "block 1 and block 2" to "block 1 and block 3".
+
+<p><strong>Page 429.</strong>
+FIGURE 19.3 (b), the assignment c1 &lt;- c1 + b2 should be c1 &lt;- c2 + b2
+
+<p><strong>Page 434.</strong>
+Line 2: "that are not dominated by"
+should be "that are not strictly dominated by"
+<br>
+Line 22: "if n does not dominate w"
+should be "if n does not dominate w, or if n = w"
+
+<p><strong>Page 435.</strong> 
+Algorithm 19.6, line 10 should read,<br>
+if <i>a</i> not in <i>A</i><sub><small>phi</small></sub>[<i>Y</i>]<br>
+Algorithm 19.6, line 14 should read,<br>
+<i>A</i><sub><small>phi</small></sub>[<i>Y</i>] <-
+<i>A</i><sub><small>phi</small></sub>[<i>Y</i>] u {<i>a</i>}.
+
+<p><strong>Page 447.</strong> 
+Line 2, first occurrence of <i>i</i> should be <i>i</i><sub><small>1</small></sub>
+
+<p><strong>Page 450.</strong> 
+Line 6, change "10" to "1".
+
+<p><strong>Page 489.</strong> 
+Exercise 20.2g, "Run Algorithm itermod" should be "Run Algorithm 20.9".
+
+<p><strong>Page 519.</strong>
+4th line from bottom, change both occurrences of "<tt>integer</tt>"
+to "<tt>int</tt>".
+
+
+</body>
+</html>
