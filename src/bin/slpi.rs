@@ -38,10 +38,8 @@ impl Environment {
         Environment(Vec::new())
     }
 
-    fn add(&self, id: Id, val: Num) -> Self {
-        let mut new_env = self.clone();
-        new_env.0.push((id, val));
-        new_env
+    fn add(&mut self, id: Id, val: Num) {
+        self.0.push((id, val));
     }
 }
 
@@ -56,27 +54,26 @@ impl BinOp {
     }
 }
 
-fn interprate_statement(stm: Stm, env: &Environment) -> Environment {
+fn interprate_statement(stm: Stm, env: &mut Environment) {
     match stm {
         Stm::Compound(a, b) => {
-            let new_env = interprate_statement(*a, env);
-            interprate_statement(*b, &new_env)
+            interprate_statement(*a, env);
+            interprate_statement(*b, env);
         }
         Stm::Assign(id, exp) => {
             let val = interprate_expression(*exp, env);
-            env.add(id, val)
+            env.add(id, val);
         }
         Stm::Print(exps) => {
             for exp in exps {
                 print!("{} ", interprate_expression(exp, env));
             }
             println!();
-            env.clone()
         }
     }
 }
 
-fn interprate_expression(exp: Exp, env: &Environment) -> Num {
+fn interprate_expression(exp: Exp, env: &mut Environment) -> Num {
     match exp {
         Exp::Id(id) => env
             .lookup(&id)
@@ -87,8 +84,8 @@ fn interprate_expression(exp: Exp, env: &Environment) -> Num {
             &interprate_expression(*b, env),
         ),
         Exp::Eseq(stm, exp) => {
-            let new_env = interprate_statement(*stm, env);
-            interprate_expression(*exp, &new_env)
+            interprate_statement(*stm, env);
+            interprate_expression(*exp, env)
         }
     }
 }
@@ -128,5 +125,5 @@ fn main() {
 
     println!("Should print 8, 7 on one line, then 16 on another line");
     println!("---");
-    interprate_statement(prog, &Environment::new());
+    interprate_statement(prog, &mut Environment::new());
 }
