@@ -38,8 +38,9 @@ impl Environment {
         Environment(Vec::new())
     }
 
-    fn add(&mut self, id: Id, val: Num) {
+    fn add(mut self, id: Id, val: Num) -> Self {
         self.0.push((id, val));
+        self
     }
 }
 
@@ -54,37 +55,43 @@ impl BinOp {
     }
 }
 
-fn interprate_statement(stm: Stm, env: &mut Environment) {
+fn interprate_statement(stm: Stm, env: Environment) -> Environment {
     match stm {
         Stm::Compound(a, b) => {
-            interprate_statement(*a, env);
-            interprate_statement(*b, env);
+            let env = interprate_statement(*a, env);
+            interprate_statement(*b, env)
         }
         Stm::Assign(id, exp) => {
-            let val = interprate_expression(*exp, env);
-            env.add(id, val);
+            let (val, env) = interprate_expression(*exp, env);
+            env.add(id, val)
         }
         Stm::Print(exps) => {
-            for exp in exps {
-                print!("{} ", interprate_expression(exp, env));
-            }
+            let env = exps.into_iter().fold(env, |env, exp| {
+                let (val, env) = interprate_expression(exp, env);
+                print!("{} ", val);
+                env
+            });
             println!();
+            env
         }
     }
 }
 
-fn interprate_expression(exp: Exp, env: &mut Environment) -> Num {
+fn interprate_expression(exp: Exp, env: Environment) -> (Num, Environment) {
     match exp {
-        Exp::Id(id) => env
-            .lookup(&id)
-            .unwrap_or_else(|| panic!("Could not find any variable with name {}", id)),
-        Exp::Num(num) => num,
-        Exp::Op(a, op, b) => op.eval(
-            &interprate_expression(*a, env),
-            &interprate_expression(*b, env),
+        Exp::Id(id) => (
+            env.lookup(&id)
+                .unwrap_or_else(|| panic!("Could not find any variable with name {}", id)),
+            env,
         ),
+        Exp::Num(num) => (num, env),
+        Exp::Op(a, op, b) => {
+            let (a, env) = interprate_expression(*a, env);
+            let (b, env) = interprate_expression(*b, env);
+            (op.eval(&a, &b), env)
+        }
         Exp::Eseq(stm, exp) => {
-            interprate_statement(*stm, env);
+            let env = interprate_statement(*stm, env);
             interprate_expression(*exp, env)
         }
     }
@@ -125,5 +132,5 @@ fn main() {
 
     println!("Should print 8, 7 on one line, then 16 on another line");
     println!("---");
-    interprate_statement(prog, &mut Environment::new());
+    interprate_statement(prog, Environment::new());
 }
