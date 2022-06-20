@@ -3,5 +3,5 @@
 version = 3
 
 [[package]]
-name = "tiger-compiler"
+name = "tc"
 version = "0.1.0"

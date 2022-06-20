@@ -1,6 +1,6 @@
 use std::io;
 
-use tiger_compiler::parser::lexer::TokenStream;
+use tc::parser::lexer::TokenStream;
 
 fn main() {
     let lexer = TokenStream::new(io::stdin().lock());
