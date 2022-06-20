@@ -1,21 +1,34 @@
 use std::io::BufRead;
 
-pub struct TokenIterator<R: BufRead> {
+pub enum Token {}
+
+pub struct TokenStream<R: BufRead> {
     input: R,
 }
 
-pub enum Token {}
-
-impl<R: BufRead> TokenIterator<R> {
+impl<R: BufRead> TokenStream<R> {
     pub fn new(input: R) -> Self {
-        TokenIterator { input }
+        Self { input }
     }
+}
+
+impl<R: BufRead> IntoIterator for TokenStream<R> {
+    type Item = Token;
+    type IntoIter = TokenIterator<R>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        TokenIterator { input: self.input }
+    }
+}
+
+pub struct TokenIterator<R: BufRead> {
+    input: R,
 }
 
 impl<R: BufRead> Iterator for TokenIterator<R> {
     type Item = Token;
     fn next(&mut self) -> Option<Self::Item> {
-        None
+        todo!()
     }
 }
 
@@ -27,15 +40,15 @@ mod tests {
 
     #[test]
     fn empty() {
-        let lexer = TokenIterator::new("".as_bytes());
-        assert_eq!(lexer.count(), 0);
+        let lexer = TokenStream::new("".as_bytes());
+        assert_eq!(lexer.into_iter().count(), 0);
     }
 
     fn token_count_in_example(file_name: &str) -> io::Result<usize> {
         let path = format!("tests/tiger_examples/{}", file_name);
         let reader = BufReader::new(File::open(path)?);
-        let it = TokenIterator::new(reader);
-        Ok(it.count())
+        let lexer = TokenStream::new(reader);
+        Ok(lexer.into_iter().count())
     }
 
     fn check_token_count(file_name: &str, expected: usize) {

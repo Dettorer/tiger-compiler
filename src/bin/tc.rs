@@ -1,8 +1,8 @@
 use std::io;
 
-use tiger_compiler::parser::lexer::TokenIterator;
+use tiger_compiler::parser::lexer::TokenStream;
 
 fn main() {
-    let lexer = TokenIterator::new(io::stdin().lock());
-    println!("There are {} tokens in the input", lexer.count());
+    let lexer = TokenStream::new(io::stdin().lock());
+    println!("There are {} tokens in the input", lexer.into_iter().count());
 }
