@@ -1,34 +1,285 @@
+//! A regex-based lexer strongly inspired by [krsnik02](https://crates.io/users/krsnik02)'s
+//! [regex-lexer](https://crates.io/crates/regex-lexer) crate. It essentially works the same way,
+//! with the addition of a [`Location`](Location) attached to each token
+
+use super::{Location, TextPoint};
+use regex::{Regex, RegexSet};
 use std::io::BufRead;
 
-pub enum Token {}
+#[derive(Debug, PartialEq)]
+pub enum TokenVariant {
+    // reserved keywords
+    Array,
+    Break,
+    Do,
+    Else,
+    End,
+    For,
+    Function,
+    If,
+    In,
+    Let,
+    Nil,
+    Of,
+    Then,
+    To,
+    Type,
+    Var,
+    While,
 
-pub struct TokenStream<R: BufRead> {
-    input: R,
+    // punctuation symbols
+    Comma,
+    Colon,
+    Semicolon,
+    LeftParen,
+    RightParen,
+    LeftBracket,
+    RightBracket,
+    LeftCurlyBracket,
+    RightCurlyBracket,
+    Dot,
+    PlusSign,
+    Dash,
+    Star,
+    Slash,
+    EqualSign,
+    DiffSign,
+    LeftChevron,
+    RightChevron,
+    InferiorOrEqualSign,
+    SuperiorOrEqualSign,
+    Ampersand,
+    Pipe,
+    AssignmentSign,
+
+    // complex tokens
+    Id(String),
+    IntLiteral(u32),
+    StringLiteral(String),
+
+    // ignored syntax elements
+    Comment,
+    NewLine,
+    WhiteSpace,
 }
 
-impl<R: BufRead> TokenStream<R> {
+impl TokenVariant {
+    pub fn is_ignored(&self) -> bool {
+        matches!(
+            self,
+            TokenVariant::Comment | TokenVariant::NewLine | TokenVariant::WhiteSpace
+        )
+    }
+}
+
+fn parse_string_literal(literal: &str) -> String {
+    let mut parsed = String::new();
+
+    let content = &literal[1..literal.len() - 1];
+    for c in content.chars() {
+        todo!();
+    }
+
+    parsed
+}
+
+#[derive(Debug)]
+pub struct Token {
+    pub token_type: TokenVariant,
+    pub location: Location,
+}
+
+impl Token {
+    fn new(token_type: TokenVariant, location: Location) -> Self {
+        Token {
+            token_type,
+            location,
+        }
+    }
+}
+
+type TokenBuilder = fn(Location, &str) -> Token;
+macro_rules! simple_builder {
+    ($token:expr) => {
+        |loc, _| Token::new($token, loc)
+    };
+}
+
+const PRODUCTION_RULES: &[(&str, TokenBuilder)] = {
+    use TokenVariant::*;
+    &[
+        // identifiers
+        //
+        // The identifier regex must appear first as identifier tokens have a lower priority than
+        // the reserved keywords, who also matches the identifier regex. Later on we use
+        // `Iterator::max_by_key` to find the regex in this set that matched the longest string,
+        // and if multiple regexes matched a string of the same maximum length, then this function
+        // returns the last one on the list.
+        (r"^[[:alpha:]][[:alnum:]_]*", |loc, matched_text| {
+            Token::new(Id(matched_text.to_string()), loc)
+        }),
+        // reserved keywords
+        (r"^array", simple_builder!(Array)),
+        (r"^break", simple_builder!(Break)),
+        (r"^do", simple_builder!(Do)),
+        (r"^else", simple_builder!(Else)),
+        (r"^end", simple_builder!(End)),
+        (r"^for", simple_builder!(For)),
+        (r"^function", simple_builder!(Function)),
+        (r"^if", simple_builder!(If)),
+        (r"^in", simple_builder!(In)),
+        (r"^let", simple_builder!(Let)),
+        (r"^nil", simple_builder!(Nil)),
+        (r"^of", simple_builder!(Of)),
+        (r"^then", simple_builder!(Then)),
+        (r"^to", simple_builder!(To)),
+        (r"^type", simple_builder!(Type)),
+        (r"^var", simple_builder!(Var)),
+        (r"^while", simple_builder!(While)),
+        // punctuation symbols
+        (r"^,", simple_builder!(Comma)),
+        (r"^:", simple_builder!(Colon)),
+        (r"^;", simple_builder!(Semicolon)),
+        (r"^\(", simple_builder!(LeftParen)),
+        (r"^\)", simple_builder!(RightParen)),
+        (r"^\[", simple_builder!(LeftBracket)),
+        (r"^\]", simple_builder!(RightBracket)),
+        (r"^\{", simple_builder!(LeftCurlyBracket)),
+        (r"^\}", simple_builder!(RightCurlyBracket)),
+        (r"^\.", simple_builder!(Dot)),
+        (r"^\+", simple_builder!(PlusSign)),
+        (r"^-", simple_builder!(Dash)),
+        (r"^\*", simple_builder!(Star)),
+        (r"^/", simple_builder!(Slash)),
+        (r"^=", simple_builder!(EqualSign)),
+        (r"^<>", simple_builder!(DiffSign)),
+        (r"^<", simple_builder!(LeftChevron)),
+        (r"^>", simple_builder!(RightChevron)),
+        (r"^<=", simple_builder!(InferiorOrEqualSign)),
+        (r"^>=", simple_builder!(SuperiorOrEqualSign)),
+        (r"^&", simple_builder!(Ampersand)),
+        (r"^\|", simple_builder!(Pipe)),
+        (r"^:=", simple_builder!(AssignmentSign)),
+        // string literals
+        (r#"^".*?[^\\]?""#, |loc, matched_text| {
+            Token::new(StringLiteral(parse_string_literal(matched_text)), loc)
+        }),
+        // integer literals
+        (r"^\d+", |loc, matched_text| {
+            Token::new(
+                IntLiteral(
+                    matched_text
+                        .parse()
+                        .unwrap_or_else(|_| panic!("out of bound int literal at {}", loc)),
+                ),
+                loc,
+            )
+        }),
+        // whitespace
+        (r"^\s+", simple_builder!(WhiteSpace)),
+        // comments
+        // FIXME: this doesn't parse comments spanning on multiple lines (because I work line by
+        // line), nor does it handle nested comments
+        (r"^/\*.*?\*/", simple_builder!(Comment)),
+    ]
+};
+
+pub struct Lexer<R: BufRead> {
+    input: R,
+    regex_set: RegexSet,
+    regex_list: Vec<Regex>,
+
+    current_line: String,
+    current_pos: TextPoint,
+}
+
+impl<R: BufRead> Lexer<R> {
     pub fn new(input: R) -> Self {
-        Self { input }
+        let regex_set = RegexSet::new(PRODUCTION_RULES.iter().map(|(regex, _)| *regex))
+            .expect("Internal error initializing the lexer");
+
+        let regex_list = PRODUCTION_RULES
+            .iter()
+            .map(|(regex, _)| Regex::new(regex).expect("Internal error initializing the lexer"))
+            .collect();
+
+        Self {
+            input,
+            regex_set,
+            regex_list,
+            current_line: String::new(),
+            current_pos: TextPoint { line: 0, column: 1 },
+        }
     }
 }
 
-impl<R: BufRead> IntoIterator for TokenStream<R> {
+impl<R: BufRead> Iterator for Lexer<R> {
     type Item = Token;
-    type IntoIter = TokenIterator<R>;
+    fn next(&mut self) -> Option<Token> {
+        // check if we need to consume more input
+        while self.current_pos.column >= self.current_line.len() {
+            self.current_line.clear();
+            let res_line = self.input.read_line(&mut self.current_line);
+            match res_line {
+                Ok(0) => return None, // EOF
+                Err(err) => panic!("Error while consuming the input: {}", err),
+                Ok(_) => (),
+            }
 
-    fn into_iter(self) -> Self::IntoIter {
-        TokenIterator { input: self.input }
-    }
-}
+            self.current_pos.line += 1;
+            self.current_pos.column = 0;
+        }
 
-pub struct TokenIterator<R: BufRead> {
-    input: R,
-}
+        // find the best match
+        let next_input = &self.current_line[self.current_pos.column..];
+        let (rule_index, match_length) = self
+            .regex_set
+            .matches(next_input)
+            .into_iter()
+            .map(|rule_index| {
+                // find the regex corresponding to this index in `regex_list`
+                let matching_regex = self
+                    .regex_list
+                    .get(rule_index)
+                    .expect("Internal error scanning the input");
 
-impl<R: BufRead> Iterator for TokenIterator<R> {
-    type Item = Token;
-    fn next(&mut self) -> Option<Self::Item> {
-        todo!()
+                // run the regex *a second time* to compute the start and the end of the matched
+                // region. this is only needed because RegexSet only tells which regex matched and
+                // no other information about what it matched
+                let region = matching_regex
+                    .find(next_input)
+                    .expect("Internal error scanning the input");
+                let match_length = region.end() - region.start();
+
+                (rule_index, match_length)
+            })
+            .max_by_key(|&(_idx, match_length)| match_length)
+            .unwrap_or_else(|| panic!("Unknown token at {}", self.current_pos));
+
+        // Build the token
+        let matched_col_start = self.current_pos.column;
+        let matched_col_end = matched_col_start + match_length;
+        let loc = Location {
+            start: self.current_pos,
+            end: TextPoint {
+                line: matched_col_start,
+                column: matched_col_end,
+            },
+        };
+        let matched_text = &self.current_line[matched_col_start..matched_col_end];
+        let (_, token_builder) = PRODUCTION_RULES
+            .get(rule_index)
+            .expect("Internal error scanning the input");
+        let token = token_builder(loc, matched_text);
+
+        // update our position in the input
+        self.current_pos.column += match_length;
+
+        if token.token_type.is_ignored() {
+            self.next()
+        } else {
+            Some(token)
+        }
     }
 }
 
@@ -36,19 +287,35 @@ impl<R: BufRead> Iterator for TokenIterator<R> {
 mod tests {
     use super::*;
     use std::fs::File;
-    use std::io::{self, BufReader};
+    use std::io::{self, BufReader, Cursor};
 
     #[test]
     fn empty() {
-        let lexer = TokenStream::new("".as_bytes());
-        assert_eq!(lexer.into_iter().count(), 0);
+        let lexer = Lexer::new(Cursor::new(""));
+        assert_eq!(lexer.count(), 0);
+    }
+
+    fn check_single_string(input: &str, expected: &str) {
+        let lexer = Lexer::new(Cursor::new(input));
+        let token_list = lexer.collect::<Vec<Token>>();
+        assert_eq!(token_list.len(), 1);
+        assert_eq!(
+            token_list.get(0).unwrap().token_type,
+            TokenVariant::StringLiteral(expected.to_string())
+        )
+    }
+
+    #[test]
+    fn test_string_parsing() {
+        check_single_string("\"\"", "");
+        // TODO: more string tests
     }
 
     fn token_count_in_example(file_name: &str) -> io::Result<usize> {
         let path = format!("tests/tiger_examples/{}", file_name);
         let reader = BufReader::new(File::open(path)?);
-        let lexer = TokenStream::new(reader);
-        Ok(lexer.into_iter().count())
+        let lexer = Lexer::new(reader);
+        Ok(lexer.count())
     }
 
     fn check_token_count(file_name: &str, expected: usize) {

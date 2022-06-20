@@ -1,11 +1,10 @@
 use std::io;
 
-use tc::parser::lexer::TokenStream;
+use tc::parser::lexer::Lexer;
 
 fn main() {
-    let lexer = TokenStream::new(io::stdin().lock());
-    println!(
-        "There are {} tokens in the input",
-        lexer.into_iter().count()
-    );
+    let lexer = Lexer::new(io::stdin().lock());
+    for token in lexer {
+        println!("{:?}", token);
+    }
 }
