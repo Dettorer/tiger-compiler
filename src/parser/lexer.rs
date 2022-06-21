@@ -72,12 +72,65 @@ impl TokenVariant {
     }
 }
 
-fn parse_string_literal(literal: &str) -> String {
+fn parse_ascii_code(digits: &[u8], location: Location) -> char {
+    let code_str = std::str::from_utf8(digits).unwrap_or_else(|err| {
+        panic!(
+            "internal error parsing ascii code escape sequence in a string at {} ({})",
+            location, err
+        )
+    });
+    let code = u8::from_str_radix(code_str, 10).unwrap_or_else(|err| {
+        panic!(
+            "invalid ascii code \"{}\" at {} ({})",
+            code_str, location, err
+        )
+    });
+
+    code as char
+}
+
+fn parse_string_literal(literal: &str, location: Location) -> String {
     let mut parsed = String::new();
 
-    let content = &literal[1..literal.len() - 1];
-    for c in content.chars() {
-        todo!();
+    let content: Vec<u8> = literal.bytes().collect();
+    let mut remaining_content = &content[1..&content.len() - 1];
+
+    // `push_and_advance!(char, length)` pushes `char` to the parsed string and consume `length`
+    // characters in the remaining content (move the start of the slide `length` elements to the
+    // right)
+    macro_rules! push_and_consume {
+        ($char:expr, $length:expr) => {{
+            parsed.push($char);
+            remaining_content = &remaining_content[$length..];
+        }};
+    }
+
+    // scan the input string copying regular character and replacing escape sequences by the
+    // character they describe
+    loop {
+        match remaining_content {
+            // simple escapes
+            [b'\\', b'"', ..] => push_and_consume!('"', 2),
+            [b'\\', b'n', ..] => push_and_consume!('\n', 2),
+            [b'\\', b't', ..] => push_and_consume!('\t', 2),
+            [b'\\', b'\\', ..] => push_and_consume!('\\', 2),
+            // control characters
+            [b'\\', b'^', b'a', ..] => push_and_consume!('\x07', 3),
+            [b'\\', b'^', b'b', ..] => push_and_consume!('\x08', 3),
+            [b'\\', b'^', b'f', ..] => push_and_consume!('\x0C', 3),
+            [b'\\', b'^', b'r', ..] => push_and_consume!('\r', 3),
+            [b'\\', b'^', b'v', ..] => push_and_consume!('\x0B', 3),
+            [b'\\', b'^', b'0', ..] => push_and_consume!('\0', 3),
+            // arbitrary ascii code
+            [b'\\', _, _, _, ..] => {
+                push_and_consume!(parse_ascii_code(&remaining_content[1..4], location), 4)
+            }
+            // TODO: ignored formatting sequence (arbitrary length)
+            // regular character
+            [c, ..] => push_and_consume!(*c as char, 1),
+            // end of the string
+            [] => break,
+        }
     }
 
     parsed
@@ -162,7 +215,7 @@ const PRODUCTION_RULES: &[(&str, TokenBuilder)] = {
         (r"^:=", simple_builder!(AssignmentSign)),
         // string literals
         (r#"^".*?[^\\]?""#, |loc, matched_text| {
-            Token::new(StringLiteral(parse_string_literal(matched_text)), loc)
+            Token::new(StringLiteral(parse_string_literal(matched_text, loc)), loc)
         }),
         // integer literals
         (r"^\d+", |loc, matched_text| {
@@ -296,6 +349,7 @@ mod tests {
     }
 
     fn check_single_string(input: &str, expected: &str) {
+        eprintln!("Parsing ```{}```", input);
         let lexer = Lexer::new(Cursor::new(input));
         let token_list = lexer.collect::<Vec<Token>>();
         assert_eq!(token_list.len(), 1);
@@ -307,8 +361,9 @@ mod tests {
 
     #[test]
     fn test_string_parsing() {
-        check_single_string("\"\"", "");
-        // TODO: more string tests
+        check_single_string(r#""""#, "");
+        check_single_string(r#""\"""#, "\"");
+        check_single_string(r#""\086o\116a\105\032T\101st\046""#, "Votai Test.");
     }
 
     fn token_count_in_example(file_name: &str) -> io::Result<usize> {
