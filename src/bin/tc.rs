@@ -1,6 +1,6 @@
 use std::io;
 
-use tc::parser::lexer::Lexer;
+use tc::parser::Lexer;
 
 fn main() {
     let lexer = Lexer::new(io::stdin().lock());

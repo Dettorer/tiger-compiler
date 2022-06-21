@@ -2,164 +2,46 @@
 //! [regex-lexer](https://crates.io/crates/regex-lexer) crate. It essentially works the same way,
 //! with the addition of a [`Location`](Location) attached to each token
 
-use super::{Location, TextPoint};
+use super::{Location, TextPoint, Token, TokenVariant};
 use regex::{Regex, RegexSet};
 use std::io::BufRead;
 
-#[derive(Debug, PartialEq)]
-pub enum TokenVariant {
-    // reserved keywords
-    Array,
-    Break,
-    Do,
-    Else,
-    End,
-    For,
-    Function,
-    If,
-    In,
-    Let,
-    Nil,
-    Of,
-    Then,
-    To,
-    Type,
-    Var,
-    While,
-
-    // punctuation symbols
-    Comma,
-    Colon,
-    Semicolon,
-    LeftParen,
-    RightParen,
-    LeftBracket,
-    RightBracket,
-    LeftCurlyBracket,
-    RightCurlyBracket,
-    Dot,
-    PlusSign,
-    Dash,
-    Star,
-    Slash,
-    EqualSign,
-    DiffSign,
-    LeftChevron,
-    RightChevron,
-    InferiorOrEqualSign,
-    SuperiorOrEqualSign,
-    Ampersand,
-    Pipe,
-    AssignmentSign,
-
-    // complex tokens
-    Id(String),
-    IntLiteral(u32),
-    StringLiteral(String),
-
-    // ignored syntax elements
-    Comment,
-    NewLine,
-    WhiteSpace,
-}
-
-impl TokenVariant {
-    pub fn is_ignored(&self) -> bool {
-        matches!(
-            self,
-            TokenVariant::Comment | TokenVariant::NewLine | TokenVariant::WhiteSpace
-        )
-    }
-}
-
-fn parse_ascii_code(digits: &[u8], location: Location) -> char {
-    let code_str = std::str::from_utf8(digits).unwrap_or_else(|err| {
-        panic!(
-            "internal error parsing ascii code escape sequence in a string at {} ({})",
-            location, err
-        )
-    });
-    let code = u8::from_str_radix(code_str, 10).unwrap_or_else(|err| {
-        panic!(
-            "invalid ascii code \"{}\" at {} ({})",
-            code_str, location, err
-        )
-    });
-
-    code as char
-}
-
-fn parse_string_literal(literal: &str, location: Location) -> String {
-    let mut parsed = String::new();
-
-    let content: Vec<u8> = literal.bytes().collect();
-    let mut remaining_content = &content[1..&content.len() - 1];
-
-    // `push_and_advance!(char, length)` pushes `char` to the parsed string and consume `length`
-    // characters in the remaining content (move the start of the slide `length` elements to the
-    // right)
-    macro_rules! push_and_consume {
-        ($char:expr, $length:expr) => {{
-            parsed.push($char);
-            remaining_content = &remaining_content[$length..];
-        }};
-    }
-
-    // scan the input string copying regular character and replacing escape sequences by the
-    // character they describe
-    loop {
-        match remaining_content {
-            // simple escapes
-            [b'\\', b'"', ..] => push_and_consume!('"', 2),
-            [b'\\', b'n', ..] => push_and_consume!('\n', 2),
-            [b'\\', b't', ..] => push_and_consume!('\t', 2),
-            [b'\\', b'\\', ..] => push_and_consume!('\\', 2),
-            // control characters
-            [b'\\', b'^', b'a', ..] => push_and_consume!('\x07', 3),
-            [b'\\', b'^', b'b', ..] => push_and_consume!('\x08', 3),
-            [b'\\', b'^', b'f', ..] => push_and_consume!('\x0C', 3),
-            [b'\\', b'^', b'r', ..] => push_and_consume!('\r', 3),
-            [b'\\', b'^', b'v', ..] => push_and_consume!('\x0B', 3),
-            [b'\\', b'^', b'0', ..] => push_and_consume!('\0', 3),
-            // arbitrary ascii code
-            [b'\\', _, _, _, ..] => {
-                push_and_consume!(parse_ascii_code(&remaining_content[1..4], location), 4)
-            }
-            // TODO: ignored formatting sequence (arbitrary length)
-            // regular character
-            [c, ..] => push_and_consume!(*c as char, 1),
-            // end of the string
-            [] => break,
-        }
-    }
-
-    parsed
-}
-
 #[derive(Debug)]
-pub struct Token {
-    pub token_type: TokenVariant,
-    pub location: Location,
+pub struct ScanError {
+    reason: String,
 }
 
-impl Token {
-    fn new(token_type: TokenVariant, location: Location) -> Self {
-        Token {
-            token_type,
-            location,
-        }
+impl ScanError {
+    pub fn new(reason: String) -> Self {
+        ScanError { reason }
     }
 }
 
-type TokenBuilder = fn(Location, &str) -> Token;
-macro_rules! simple_builder {
-    ($token:expr) => {
-        |loc, _| Token::new($token, loc)
-    };
+impl std::fmt::Display for ScanError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.reason)
+    }
 }
 
+impl std::error::Error for ScanError {}
+
+/// Functions usually associated to a regex that build the [`Token`](Token) corresponding to that
+/// regex given the string it matched and its [location](Location) in the input.
+type TokenBuilder = fn(Location, &str) -> Token;
+
+/// This array works as an association table similar to flex's production rule. Each element is a
+/// tuple, the first element of that tuple is a regex description, the second one is a
+/// [`TokenBuilder`](TokenBuilder) function that builds a `[Token]` given the matched string and
+/// its location in the input
 const PRODUCTION_RULES: &[(&str, TokenBuilder)] = {
     use TokenVariant::*;
+
+    macro_rules! simple_builder {
+        ($token:expr) => {
+            |loc, _| Token::new($token, loc)
+        };
+    }
+
     &[
         // identifiers
         //
@@ -215,16 +97,18 @@ const PRODUCTION_RULES: &[(&str, TokenBuilder)] = {
         (r"^:=", simple_builder!(AssignmentSign)),
         // string literals
         (r#"^".*?[^\\]?""#, |loc, matched_text| {
-            Token::new(StringLiteral(parse_string_literal(matched_text, loc)), loc)
+            Token::new(
+                TokenVariant::from_string_literal(matched_text).unwrap_or_else(|err| {
+                    panic!("Error parsing a string literal at {}: {}", loc, err)
+                }),
+                loc,
+            )
         }),
         // integer literals
         (r"^\d+", |loc, matched_text| {
             Token::new(
-                IntLiteral(
-                    matched_text
-                        .parse()
-                        .unwrap_or_else(|_| panic!("out of bound int literal at {}", loc)),
-                ),
+                TokenVariant::from_int_literal(matched_text)
+                    .unwrap_or_else(|err| panic!("error parsing int literal at {}: {}", loc, err)),
                 loc,
             )
         }),
@@ -237,6 +121,20 @@ const PRODUCTION_RULES: &[(&str, TokenBuilder)] = {
     ]
 };
 
+/// An iterator that yields [`Token`](Token)s.
+///
+/// # Example
+///
+/// ```
+/// use std::io::Cursor;
+/// use tc::parser::{Lexer, Token, TokenVariant};
+///
+/// let lexer = Lexer::new(Cursor::new("if a=nil then b else c"));
+/// let tokens: Vec<Token> = lexer.collect();
+///
+/// assert_eq!(tokens.len(), 8);
+/// assert_eq!(tokens.get(2).unwrap().variant, TokenVariant::EqualSign);
+/// ```
 pub struct Lexer<R: BufRead> {
     input: R,
     regex_set: RegexSet,
@@ -268,6 +166,7 @@ impl<R: BufRead> Lexer<R> {
 
 impl<R: BufRead> Iterator for Lexer<R> {
     type Item = Token;
+
     fn next(&mut self) -> Option<Token> {
         // check if we need to consume more input
         while self.current_pos.column >= self.current_line.len() {
@@ -328,7 +227,7 @@ impl<R: BufRead> Iterator for Lexer<R> {
         // update our position in the input
         self.current_pos.column += match_length;
 
-        if token.token_type.is_ignored() {
+        if token.variant.is_ignored() {
             self.next()
         } else {
             Some(token)
@@ -354,7 +253,7 @@ mod tests {
         let token_list = lexer.collect::<Vec<Token>>();
         assert_eq!(token_list.len(), 1);
         assert_eq!(
-            token_list.get(0).unwrap().token_type,
+            token_list.get(0).unwrap().variant,
             TokenVariant::StringLiteral(expected.to_string())
         )
     }
