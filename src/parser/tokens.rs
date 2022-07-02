@@ -84,7 +84,7 @@ impl TokenVariant {
     /// return the `char` whose ascii code is that integer
     fn parse_ascii_code(digits: &[u8]) -> Result<char, Box<dyn Error>> {
         let code_str = std::str::from_utf8(digits)?;
-        let code = u8::from_str_radix(code_str, 10)?;
+        let code = code_str.parse::<u8>()?;
 
         Ok(code as char)
     }
