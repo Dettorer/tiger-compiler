@@ -4,7 +4,6 @@
 
 use super::{Location, TextPoint, Token, TokenVariant};
 use regex::{Regex, RegexSet};
-use std::io::BufRead;
 
 #[derive(Debug)]
 pub struct ScanError {
@@ -96,7 +95,7 @@ const PRODUCTION_RULES: &[(&str, TokenBuilder)] = {
         (r"^\|", simple_builder!(Pipe)),
         (r"^:=", simple_builder!(AssignmentSign)),
         // string literals
-        (r#"^".*?[^\\]?""#, |loc, matched_text| {
+        (r#"^"(?s:.)*?[^\\]?""#, |loc, matched_text| {
             Token::new(
                 TokenVariant::from_string_literal(matched_text).unwrap_or_else(|err| {
                     panic!("Error parsing a string literal at {}: {}", loc, err)
@@ -115,9 +114,8 @@ const PRODUCTION_RULES: &[(&str, TokenBuilder)] = {
         // whitespace
         (r"^\s+", simple_builder!(WhiteSpace)),
         // comments
-        // FIXME: this doesn't parse comments spanning on multiple lines (because I work line by
-        // line), nor does it handle nested comments
-        (r"^/\*.*?\*/", simple_builder!(Comment)),
+        // TODO: handle nested comments (as per Andrew Appel's grammar)
+        (r"^/\*(?s:.)*?\*/", simple_builder!(Comment)),
     ]
 };
 
@@ -126,26 +124,24 @@ const PRODUCTION_RULES: &[(&str, TokenBuilder)] = {
 /// # Example
 ///
 /// ```
-/// use std::io::Cursor;
 /// use tc::parser::{Lexer, Token, TokenVariant};
 ///
-/// let lexer = Lexer::new(Cursor::new("if a=nil then b else c"));
+/// let lexer = Lexer::new("if a=nil then b else c");
 /// let tokens: Vec<Token> = lexer.collect();
 ///
 /// assert_eq!(tokens.len(), 8);
 /// assert_eq!(tokens.get(2).unwrap().variant, TokenVariant::EqualSign);
 /// ```
-pub struct Lexer<R: BufRead> {
-    input: R,
+pub struct Lexer<'a> {
+    input: &'a str,
     regex_set: RegexSet,
     regex_list: Vec<Regex>,
 
-    current_line: String,
     current_pos: TextPoint,
 }
 
-impl<R: BufRead> Lexer<R> {
-    pub fn new(input: R) -> Self {
+impl<'a> Lexer<'a> {
+    pub fn new(input: &'a str) -> Self {
         let regex_set = RegexSet::new(PRODUCTION_RULES.iter().map(|(regex, _)| *regex))
             .expect("Internal error initializing the lexer");
 
@@ -158,33 +154,26 @@ impl<R: BufRead> Lexer<R> {
             input,
             regex_set,
             regex_list,
-            current_line: String::new(),
-            current_pos: TextPoint { line: 0, column: 1 },
+            current_pos: TextPoint {
+                line: 1,
+                column: 1,
+                index: 0,
+            },
         }
     }
 }
 
-impl<R: BufRead> Iterator for Lexer<R> {
+impl<'a> Iterator for Lexer<'a> {
     type Item = Token;
 
     fn next(&mut self) -> Option<Token> {
-        // check if we need to consume more input
-        while self.current_pos.column >= self.current_line.len() {
-            self.current_line.clear();
-            let res_line = self.input.read_line(&mut self.current_line);
-            match res_line {
-                Ok(0) => return None, // EOF
-                Err(err) => panic!("Error while consuming the input: {}", err),
-                Ok(_) => (),
-            }
-
-            self.current_pos.line += 1;
-            self.current_pos.column = 0;
+        let next_input = &self.input[self.current_pos.index..];
+        if next_input.is_empty() {
+            return None;
         }
 
         // find the best match
-        let next_input = &self.current_line[self.current_pos.column..];
-        let (rule_index, match_length) = self
+        let (rule_index, matched_length) = self
             .regex_set
             .matches(next_input)
             .into_iter()
@@ -205,27 +194,39 @@ impl<R: BufRead> Iterator for Lexer<R> {
 
                 (rule_index, match_length)
             })
+            // keep only the largest match
             .max_by_key(|&(_idx, match_length)| match_length)
             .unwrap_or_else(|| panic!("Unknown token at {}", self.current_pos));
 
         // Build the token
         let matched_col_start = self.current_pos.column;
-        let matched_col_end = matched_col_start + match_length;
+        let matched_col_end = matched_col_start + matched_length;
+        let matched_index_start = self.current_pos.index;
+        let matched_index_end = matched_index_start + matched_length;
         let loc = Location {
             start: self.current_pos,
             end: TextPoint {
                 line: matched_col_start,
                 column: matched_col_end,
+                index: matched_index_end,
             },
         };
-        let matched_text = &self.current_line[matched_col_start..matched_col_end];
+        let matched_text = &self.input[matched_index_start..matched_index_end];
         let (_, token_builder) = PRODUCTION_RULES
             .get(rule_index)
             .expect("Internal error scanning the input");
         let token = token_builder(loc, matched_text);
 
         // update our position in the input
-        self.current_pos.column += match_length;
+        self.current_pos.index += matched_length;
+        self.current_pos.column += matched_length;
+        // check for newlines in the matched text
+        if let Some(last_newline_pos) = matched_text.rfind('\n') {
+            self.current_pos.line += matched_text.matches('\n').count();
+            // FIXME: last_newline_pos is a *byte* index, I need a way to translate it to a
+            // character index (or an rfind version that returns a char index)
+            self.current_pos.column = matched_text.chars().count() - last_newline_pos;
+        }
 
         if token.variant.is_ignored() {
             self.next()
@@ -238,18 +239,18 @@ impl<R: BufRead> Iterator for Lexer<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs::File;
-    use std::io::{self, BufReader, Cursor};
+    use std::fs;
+    use std::io;
 
     #[test]
     fn empty() {
-        let lexer = Lexer::new(Cursor::new(""));
+        let lexer = Lexer::new("");
         assert_eq!(lexer.count(), 0);
     }
 
     fn check_single_string(input: &str, expected: &str) {
         eprintln!("Parsing ```{}```", input);
-        let lexer = Lexer::new(Cursor::new(input));
+        let lexer = Lexer::new(input);
         let token_list = lexer.collect::<Vec<Token>>();
         assert_eq!(token_list.len(), 1);
         assert_eq!(
@@ -267,8 +268,8 @@ mod tests {
 
     fn token_count_in_example(file_name: &str) -> io::Result<usize> {
         let path = format!("tests/tiger_examples/{}", file_name);
-        let reader = BufReader::new(File::open(path)?);
-        let lexer = Lexer::new(reader);
+        let input = fs::read_to_string(path)?;
+        let lexer = Lexer::new(&input);
         Ok(lexer.count())
     }
 
@@ -290,5 +291,787 @@ mod tests {
         check_token_count("test4.tig", 32);
         check_token_count("test5.tig", 55);
         check_token_count("test6.tig", 41);
+    }
+
+    #[test]
+    fn test1_complete_with_positions() {
+        let expected_tokens = {
+            use TokenVariant::*;
+            vec![
+                Token {
+                    variant: Let,
+                    location: Location {
+                        start: TextPoint {
+                            line: 2,
+                            column: 1,
+                            index: 42,
+                        },
+                        end: TextPoint {
+                            line: 1,
+                            column: 4,
+                            index: 45,
+                        },
+                    },
+                },
+                Token {
+                    variant: Type,
+                    location: Location {
+                        start: TextPoint {
+                            line: 3,
+                            column: 2,
+                            index: 47,
+                        },
+                        end: TextPoint {
+                            line: 2,
+                            column: 6,
+                            index: 51,
+                        },
+                    },
+                },
+                Token {
+                    variant: Id("arrtype".into()),
+                    location: Location {
+                        start: TextPoint {
+                            line: 3,
+                            column: 8,
+                            index: 53,
+                        },
+                        end: TextPoint {
+                            line: 8,
+                            column: 15,
+                            index: 60,
+                        },
+                    },
+                },
+                Token {
+                    variant: EqualSign,
+                    location: Location {
+                        start: TextPoint {
+                            line: 3,
+                            column: 16,
+                            index: 61,
+                        },
+                        end: TextPoint {
+                            line: 16,
+                            column: 17,
+                            index: 62,
+                        },
+                    },
+                },
+                Token {
+                    variant: Array,
+                    location: Location {
+                        start: TextPoint {
+                            line: 3,
+                            column: 18,
+                            index: 63,
+                        },
+                        end: TextPoint {
+                            line: 18,
+                            column: 23,
+                            index: 68,
+                        },
+                    },
+                },
+                Token {
+                    variant: Of,
+                    location: Location {
+                        start: TextPoint {
+                            line: 3,
+                            column: 24,
+                            index: 69,
+                        },
+                        end: TextPoint {
+                            line: 24,
+                            column: 26,
+                            index: 71,
+                        },
+                    },
+                },
+                Token {
+                    variant: Id("int".into()),
+                    location: Location {
+                        start: TextPoint {
+                            line: 3,
+                            column: 27,
+                            index: 72,
+                        },
+                        end: TextPoint {
+                            line: 27,
+                            column: 30,
+                            index: 75,
+                        },
+                    },
+                },
+                Token {
+                    variant: Var,
+                    location: Location {
+                        start: TextPoint {
+                            line: 4,
+                            column: 2,
+                            index: 77,
+                        },
+                        end: TextPoint {
+                            line: 2,
+                            column: 5,
+                            index: 80,
+                        },
+                    },
+                },
+                Token {
+                    variant: Id("arr1".into()),
+                    location: Location {
+                        start: TextPoint {
+                            line: 4,
+                            column: 6,
+                            index: 81,
+                        },
+                        end: TextPoint {
+                            line: 6,
+                            column: 10,
+                            index: 85,
+                        },
+                    },
+                },
+                Token {
+                    variant: Colon,
+                    location: Location {
+                        start: TextPoint {
+                            line: 4,
+                            column: 10,
+                            index: 85,
+                        },
+                        end: TextPoint {
+                            line: 10,
+                            column: 11,
+                            index: 86,
+                        },
+                    },
+                },
+                Token {
+                    variant: Id("arrtype".into()),
+                    location: Location {
+                        start: TextPoint {
+                            line: 4,
+                            column: 11,
+                            index: 86,
+                        },
+                        end: TextPoint {
+                            line: 11,
+                            column: 18,
+                            index: 93,
+                        },
+                    },
+                },
+                Token {
+                    variant: AssignmentSign,
+                    location: Location {
+                        start: TextPoint {
+                            line: 4,
+                            column: 19,
+                            index: 94,
+                        },
+                        end: TextPoint {
+                            line: 19,
+                            column: 21,
+                            index: 96,
+                        },
+                    },
+                },
+                Token {
+                    variant: Id("arrtype".into()),
+                    location: Location {
+                        start: TextPoint {
+                            line: 4,
+                            column: 22,
+                            index: 97,
+                        },
+                        end: TextPoint {
+                            line: 22,
+                            column: 29,
+                            index: 104,
+                        },
+                    },
+                },
+                Token {
+                    variant: LeftBracket,
+                    location: Location {
+                        start: TextPoint {
+                            line: 4,
+                            column: 30,
+                            index: 105,
+                        },
+                        end: TextPoint {
+                            line: 30,
+                            column: 31,
+                            index: 106,
+                        },
+                    },
+                },
+                Token {
+                    variant: IntLiteral(10),
+                    location: Location {
+                        start: TextPoint {
+                            line: 4,
+                            column: 31,
+                            index: 106,
+                        },
+                        end: TextPoint {
+                            line: 31,
+                            column: 33,
+                            index: 108,
+                        },
+                    },
+                },
+                Token {
+                    variant: RightBracket,
+                    location: Location {
+                        start: TextPoint {
+                            line: 4,
+                            column: 33,
+                            index: 108,
+                        },
+                        end: TextPoint {
+                            line: 33,
+                            column: 34,
+                            index: 109,
+                        },
+                    },
+                },
+                Token {
+                    variant: Of,
+                    location: Location {
+                        start: TextPoint {
+                            line: 4,
+                            column: 35,
+                            index: 110,
+                        },
+                        end: TextPoint {
+                            line: 35,
+                            column: 37,
+                            index: 112,
+                        },
+                    },
+                },
+                Token {
+                    variant: IntLiteral(0),
+                    location: Location {
+                        start: TextPoint {
+                            line: 4,
+                            column: 38,
+                            index: 113,
+                        },
+                        end: TextPoint {
+                            line: 38,
+                            column: 39,
+                            index: 114,
+                        },
+                    },
+                },
+                Token {
+                    variant: In,
+                    location: Location {
+                        start: TextPoint {
+                            line: 5,
+                            column: 1,
+                            index: 115,
+                        },
+                        end: TextPoint {
+                            line: 1,
+                            column: 3,
+                            index: 117,
+                        },
+                    },
+                },
+                Token {
+                    variant: Id("arr1".into()),
+                    location: Location {
+                        start: TextPoint {
+                            line: 6,
+                            column: 2,
+                            index: 119,
+                        },
+                        end: TextPoint {
+                            line: 2,
+                            column: 6,
+                            index: 123,
+                        },
+                    },
+                },
+                Token {
+                    variant: End,
+                    location: Location {
+                        start: TextPoint {
+                            line: 7,
+                            column: 1,
+                            index: 124,
+                        },
+                        end: TextPoint {
+                            line: 1,
+                            column: 4,
+                            index: 127,
+                        },
+                    },
+                },
+            ]
+        };
+
+        let input = fs::read_to_string("tests/tiger_examples/test1.tig").unwrap();
+        let lexer = Lexer::new(&input);
+        for (index, (scanned, expected)) in lexer.zip(expected_tokens.iter()).enumerate() {
+            assert_eq!(scanned, *expected, "token number {} is different", index);
+        }
+    }
+
+    #[test]
+    fn test_multiline_tokens() {
+        let expected_tokens = {
+            use TokenVariant::*;
+            vec![
+                Token {
+                    variant: Let,
+                    location: Location {
+                        start: TextPoint {
+                            line: 5,
+                            column: 1,
+                            index: 49,
+                        },
+                        end: TextPoint {
+                            line: 1,
+                            column: 4,
+                            index: 52,
+                        },
+                    },
+                },
+                Token {
+                    variant: Type,
+                    location: Location {
+                        start: TextPoint {
+                            line: 6,
+                            column: 2,
+                            index: 54,
+                        },
+                        end: TextPoint {
+                            line: 2,
+                            column: 6,
+                            index: 58,
+                        },
+                    },
+                },
+                Token {
+                    variant: Id("arrtype".into()),
+                    location: Location {
+                        start: TextPoint {
+                            line: 6,
+                            column: 8,
+                            index: 60,
+                        },
+                        end: TextPoint {
+                            line: 8,
+                            column: 15,
+                            index: 67,
+                        },
+                    },
+                },
+                Token {
+                    variant: EqualSign,
+                    location: Location {
+                        start: TextPoint {
+                            line: 6,
+                            column: 16,
+                            index: 68,
+                        },
+                        end: TextPoint {
+                            line: 16,
+                            column: 17,
+                            index: 69,
+                        },
+                    },
+                },
+                Token {
+                    variant: Array,
+                    location: Location {
+                        start: TextPoint {
+                            line: 8,
+                            column: 12,
+                            index: 124,
+                        },
+                        end: TextPoint {
+                            line: 12,
+                            column: 17,
+                            index: 129,
+                        },
+                    },
+                },
+                Token {
+                    variant: Of,
+                    location: Location {
+                        start: TextPoint {
+                            line: 8,
+                            column: 18,
+                            index: 130,
+                        },
+                        end: TextPoint {
+                            line: 18,
+                            column: 20,
+                            index: 132,
+                        },
+                    },
+                },
+                Token {
+                    variant: Id("int".into()),
+                    location: Location {
+                        start: TextPoint {
+                            line: 8,
+                            column: 21,
+                            index: 133,
+                        },
+                        end: TextPoint {
+                            line: 21,
+                            column: 24,
+                            index: 136,
+                        },
+                    },
+                },
+                Token {
+                    variant: Var,
+                    location: Location {
+                        start: TextPoint {
+                            line: 9,
+                            column: 2,
+                            index: 138,
+                        },
+                        end: TextPoint {
+                            line: 2,
+                            column: 5,
+                            index: 141,
+                        },
+                    },
+                },
+                Token {
+                    variant: Id("arr1".into()),
+                    location: Location {
+                        start: TextPoint {
+                            line: 9,
+                            column: 6,
+                            index: 142,
+                        },
+                        end: TextPoint {
+                            line: 6,
+                            column: 10,
+                            index: 146,
+                        },
+                    },
+                },
+                Token {
+                    variant: Colon,
+                    location: Location {
+                        start: TextPoint {
+                            line: 9,
+                            column: 10,
+                            index: 146,
+                        },
+                        end: TextPoint {
+                            line: 10,
+                            column: 11,
+                            index: 147,
+                        },
+                    },
+                },
+                Token {
+                    variant: Id("arrtype".into()),
+                    location: Location {
+                        start: TextPoint {
+                            line: 9,
+                            column: 11,
+                            index: 147,
+                        },
+                        end: TextPoint {
+                            line: 11,
+                            column: 18,
+                            index: 154,
+                        },
+                    },
+                },
+                Token {
+                    variant: AssignmentSign,
+                    location: Location {
+                        start: TextPoint {
+                            line: 9,
+                            column: 19,
+                            index: 155,
+                        },
+                        end: TextPoint {
+                            line: 19,
+                            column: 21,
+                            index: 157,
+                        },
+                    },
+                },
+                Token {
+                    variant: Id("arrtype".into()),
+                    location: Location {
+                        start: TextPoint {
+                            line: 9,
+                            column: 22,
+                            index: 158,
+                        },
+                        end: TextPoint {
+                            line: 22,
+                            column: 29,
+                            index: 165,
+                        },
+                    },
+                },
+                Token {
+                    variant: LeftBracket,
+                    location: Location {
+                        start: TextPoint {
+                            line: 9,
+                            column: 30,
+                            index: 166,
+                        },
+                        end: TextPoint {
+                            line: 30,
+                            column: 31,
+                            index: 167,
+                        },
+                    },
+                },
+                Token {
+                    variant: IntLiteral(10),
+                    location: Location {
+                        start: TextPoint {
+                            line: 9,
+                            column: 31,
+                            index: 167,
+                        },
+                        end: TextPoint {
+                            line: 31,
+                            column: 33,
+                            index: 169,
+                        },
+                    },
+                },
+                Token {
+                    variant: RightBracket,
+                    location: Location {
+                        start: TextPoint {
+                            line: 9,
+                            column: 33,
+                            index: 169,
+                        },
+                        end: TextPoint {
+                            line: 33,
+                            column: 34,
+                            index: 170,
+                        },
+                    },
+                },
+                Token {
+                    variant: Of,
+                    location: Location {
+                        start: TextPoint {
+                            line: 9,
+                            column: 35,
+                            index: 171,
+                        },
+                        end: TextPoint {
+                            line: 35,
+                            column: 37,
+                            index: 173,
+                        },
+                    },
+                },
+                Token {
+                    variant: IntLiteral(0),
+                    location: Location {
+                        start: TextPoint {
+                            line: 9,
+                            column: 38,
+                            index: 174,
+                        },
+                        end: TextPoint {
+                            line: 38,
+                            column: 39,
+                            index: 175,
+                        },
+                    },
+                },
+                Token {
+                    variant: Var,
+                    location: Location {
+                        start: TextPoint {
+                            line: 10,
+                            column: 9,
+                            index: 184,
+                        },
+                        end: TextPoint {
+                            line: 9,
+                            column: 12,
+                            index: 187,
+                        },
+                    },
+                },
+                Token {
+                    variant: Id("str".into()),
+                    location: Location {
+                        start: TextPoint {
+                            line: 10,
+                            column: 13,
+                            index: 188,
+                        },
+                        end: TextPoint {
+                            line: 13,
+                            column: 16,
+                            index: 191,
+                        },
+                    },
+                },
+                Token {
+                    variant: Colon,
+                    location: Location {
+                        start: TextPoint {
+                            line: 10,
+                            column: 16,
+                            index: 191,
+                        },
+                        end: TextPoint {
+                            line: 16,
+                            column: 17,
+                            index: 192,
+                        },
+                    },
+                },
+                Token {
+                    variant: Id("string".into()),
+                    location: Location {
+                        start: TextPoint {
+                            line: 10,
+                            column: 17,
+                            index: 192,
+                        },
+                        end: TextPoint {
+                            line: 17,
+                            column: 23,
+                            index: 198,
+                        },
+                    },
+                },
+                Token {
+                    variant: AssignmentSign,
+                    location: Location {
+                        start: TextPoint {
+                            line: 10,
+                            column: 24,
+                            index: 199,
+                        },
+                        end: TextPoint {
+                            line: 24,
+                            column: 26,
+                            index: 201,
+                        },
+                    },
+                },
+                Token {
+                    variant: StringLiteral("simple string".into()),
+                    location: Location {
+                        start: TextPoint {
+                            line: 10,
+                            column: 27,
+                            index: 202,
+                        },
+                        end: TextPoint {
+                            line: 27,
+                            column: 42,
+                            index: 217,
+                        },
+                    },
+                },
+                Token {
+                    variant: In,
+                    location: Location {
+                        start: TextPoint {
+                            line: 11,
+                            column: 1,
+                            index: 218,
+                        },
+                        end: TextPoint {
+                            line: 1,
+                            column: 3,
+                            index: 220,
+                        },
+                    },
+                },
+                Token {
+                    variant: Id("arr1".into()),
+                    location: Location {
+                        start: TextPoint {
+                            line: 12,
+                            column: 2,
+                            index: 222,
+                        },
+                        end: TextPoint {
+                            line: 2,
+                            column: 6,
+                            index: 226,
+                        },
+                    },
+                },
+                Token {
+                    variant: DiffSign,
+                    location: Location {
+                        start: TextPoint {
+                            line: 12,
+                            column: 7,
+                            index: 227,
+                        },
+                        end: TextPoint {
+                            line: 7,
+                            column: 9,
+                            index: 229,
+                        },
+                    },
+                },
+                Token {
+                    variant: StringLiteral("this is\n        a multiline\n        string".into()),
+                    location: Location {
+                        start: TextPoint {
+                            line: 12,
+                            column: 10,
+                            index: 230,
+                        },
+                        end: TextPoint {
+                            line: 10,
+                            column: 54,
+                            index: 274,
+                        },
+                    },
+                },
+                Token {
+                    variant: End,
+                    location: Location {
+                        start: TextPoint {
+                            line: 15,
+                            column: 1,
+                            index: 275,
+                        },
+                        end: TextPoint {
+                            line: 1,
+                            column: 4,
+                            index: 278,
+                        },
+                    },
+                },
+            ]
+        };
+
+        let input =
+            fs::read_to_string("tests/tiger_examples/test1_multiline_comments_and_strings.tig")
+                .unwrap();
+        let lexer = Lexer::new(&input);
+        for (index, (scanned, expected)) in lexer.zip(expected_tokens.iter()).enumerate() {
+            assert_eq!(scanned, *expected, "token number {} is different", index);
+        }
     }
 }

@@ -1,0 +1,15 @@
+/*
+ * an array type
+ * and an array variable
+ */
+let
+	type  arrtype = /*
+            should be correctly ignored
+        */ array of int
+	var arr1:arrtype := arrtype [10] of 0
+        var str:string := "simple string"
+in
+	arr1 <> "this is
+        a multiline
+        string"
+end

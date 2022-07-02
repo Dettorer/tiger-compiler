@@ -180,7 +180,7 @@ impl TokenVariant {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Token {
     pub variant: TokenVariant,
     pub location: Location,
