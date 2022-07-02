@@ -3,7 +3,7 @@ use std::{error::Error, num::ParseIntError};
 
 /// Every valid token type in the Tiger language grammar. `Comment`, `NewLine` and `WhiteSpace`
 /// aren't technically tokens in the grammar but are used by the lexer to recognize and ignore part
-/// of the input
+/// of the input.
 #[derive(Debug, PartialEq)]
 pub enum TigerTokenVariant {
     // reserved keywords
@@ -291,9 +291,19 @@ const TIGER_LEXING_RULES: &[LexerRule<TigerToken>] = {
     ]
 };
 
-/// Build and return a [`Lexer`](Lexer) for the Tiger language, ready to scan `input`.
-pub fn build_tiger_lexer(input: &str) -> Lexer<TigerToken> {
-    Lexer::new(input, TIGER_LEXING_RULES.to_owned())
+/// Build and return a [`Lexer`](Lexer) for the Tiger language.
+///
+/// # Example
+///
+/// ```
+/// use tc::parser::build_tiger_lexer;
+///
+/// let lexer = build_tiger_lexer();
+/// let token_iterator = lexer.scan("var arr1:arrtype := arrtype [10] of 0");
+/// assert_eq!(token_iterator.count(), 11);
+/// ```
+pub fn build_tiger_lexer() -> Lexer<TigerToken> {
+    Lexer::new(TIGER_LEXING_RULES.to_owned())
 }
 
 #[cfg(test)]
@@ -305,14 +315,14 @@ mod tests {
 
     #[test]
     fn empty() {
-        let lexer = build_tiger_lexer("");
-        assert_eq!(lexer.count(), 0);
+        let lexer = build_tiger_lexer();
+        assert_eq!(lexer.scan("").count(), 0);
     }
 
     fn check_single_string(input: &str, expected: &str) {
         eprintln!("Parsing ```{}```", input);
-        let lexer = build_tiger_lexer(input);
-        let token_list = lexer.collect::<Vec<TigerToken>>();
+        let lexer = build_tiger_lexer();
+        let token_list = lexer.scan(input).collect::<Vec<TigerToken>>();
         assert_eq!(token_list.len(), 1);
         assert_eq!(
             token_list.get(0).unwrap().variant,
@@ -330,8 +340,8 @@ mod tests {
     fn token_count_in_example(file_name: &str) -> io::Result<usize> {
         let path = format!("tests/tiger_examples/{}", file_name);
         let input = fs::read_to_string(path)?;
-        let lexer = build_tiger_lexer(&input);
-        Ok(lexer.count())
+        let lexer = build_tiger_lexer();
+        Ok(lexer.scan(&input).count())
     }
 
     fn check_token_count(file_name: &str, expected: usize) {
@@ -678,10 +688,15 @@ mod tests {
         };
 
         let input = fs::read_to_string("tests/tiger_examples/test1.tig").unwrap();
-        let lexer = build_tiger_lexer(&input);
-        for (index, (scanned, expected)) in lexer.zip(expected_tokens.iter()).enumerate() {
-            assert_eq!(scanned, *expected, "token number {} is different", index);
-        }
+        let lexer = build_tiger_lexer();
+
+        lexer
+            .scan(&input)
+            .zip(expected_tokens.iter())
+            .enumerate()
+            .for_each(|(index, (scanned, expected))| {
+                assert_eq!(scanned, *expected, "token number {} is different", index)
+            });
     }
 
     #[test]
@@ -1130,9 +1145,14 @@ mod tests {
         let input =
             fs::read_to_string("tests/tiger_examples/test1_multiline_comments_and_strings.tig")
                 .unwrap();
-        let lexer = build_tiger_lexer(&input);
-        for (index, (scanned, expected)) in lexer.zip(expected_tokens.iter()).enumerate() {
-            assert_eq!(scanned, *expected, "token number {} is different", index);
-        }
+        let lexer = build_tiger_lexer();
+
+        lexer
+            .scan(&input)
+            .zip(expected_tokens.iter())
+            .enumerate()
+            .for_each(|(index, (scanned, expected))| {
+                assert_eq!(scanned, *expected, "token number {} is different", index)
+            });
     }
 }

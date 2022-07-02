@@ -28,16 +28,16 @@ impl std::fmt::Display for ScanError {
 
 impl std::error::Error for ScanError {}
 
-/// Functions usually associated to a regex that build the [`Token`](Token) corresponding to that
-/// regex given the string it matched and its [location](Location) in the input.
+/// Functions usually associated to a regex that build a [`Token`](Token) corresponding to that
+/// regex. The functions are given the string it matched and its [location](Location) in the input.
 pub type TokenBuilder<TokenType> = fn(Location, &str) -> TokenType;
 
 /// An association similar to flex's production rule. The first element of the tuple is a regex
 /// description, the second one is a [`TokenBuilder`](TokenBuilder) function that builds a token of
-/// type `[TokenType]` given the matched string and its location in the input
+/// type `TokenType` given the matched string and its location in the input.
 pub type LexerRule<TokenType> = (&'static str, TokenBuilder<TokenType>);
 
-/// An iterator that yields [`Token`](Token)s.
+/// A Lexer capable of scanning [`Token`](Token)s described by a set of [`LexerRule`](LexerRule)s.
 ///
 /// # Example
 ///
@@ -73,23 +73,31 @@ pub type LexerRule<TokenType> = (&'static str, TokenBuilder<TokenType>);
 ///     (r"^\s+", |_location, _matched_text| ExampleToken::WhiteSpace),
 /// ];
 ///
-/// let lexer = Lexer::new("if a=nil then b else c", lexing_rules);
-/// let tokens: Vec<ExampleToken> = lexer.collect();
+/// let lexer = Lexer::new(lexing_rules);
+/// let tokens: Vec<ExampleToken> = lexer.scan("if a=nil then b else c").collect();
 ///
-/// assert_eq!(tokens.len(), 8);
-/// assert_eq!(tokens.get(2), Some(&ExampleToken::EqualSign));
+/// assert_eq!(
+///     tokens,
+///     vec![
+///         ExampleToken::If,
+///         ExampleToken::Id("a".to_owned()),
+///         ExampleToken::EqualSign,
+///         ExampleToken::Id("nil".to_owned()),
+///         ExampleToken::Then,
+///         ExampleToken::Id("b".to_owned()),
+///         ExampleToken::Else,
+///         ExampleToken::Id("c".to_owned()),
+///     ]
+/// );
 /// ```
-pub struct Lexer<'a, TokenType: Token> {
-    input: &'a str,
+pub struct Lexer<TokenType: Token> {
     regex_set: RegexSet,
     regex_list: Vec<Regex>,
     production_rules: Vec<LexerRule<TokenType>>,
-
-    current_pos: TextPoint,
 }
 
-impl<'a, TokenType: Token> Lexer<'a, TokenType> {
-    pub fn new(input: &'a str, production_rules: Vec<LexerRule<TokenType>>) -> Self {
+impl<TokenType: Token> Lexer<TokenType> {
+    pub fn new(production_rules: Vec<LexerRule<TokenType>>) -> Self {
         let regex_set = RegexSet::new(production_rules.iter().map(|(regex, _)| *regex))
             .expect("Internal error initializing the lexer");
 
@@ -99,10 +107,19 @@ impl<'a, TokenType: Token> Lexer<'a, TokenType> {
             .collect();
 
         Self {
-            input,
             regex_set,
             regex_list,
             production_rules,
+        }
+    }
+
+    /// Return an [`Iterator`](TokenIterator) over the scanned tokens of `input`.
+    ///
+    /// See the example of [`Lexer`](Lexer).
+    pub fn scan<'a, 'b>(&'a self, input: &'b str) -> TokenIterator<'a, 'b, TokenType> {
+        TokenIterator {
+            lexer: self,
+            input,
             current_pos: TextPoint {
                 line: 1,
                 column: 1,
@@ -112,7 +129,14 @@ impl<'a, TokenType: Token> Lexer<'a, TokenType> {
     }
 }
 
-impl<'a, TokenType: Token> Iterator for Lexer<'a, TokenType> {
+/// An iterator that yields [`Token`](Token)s.
+pub struct TokenIterator<'a, 'b, TokenType: Token> {
+    lexer: &'a Lexer<TokenType>,
+    input: &'b str,
+    current_pos: TextPoint,
+}
+
+impl<'a, 'b, TokenType: Token> Iterator for TokenIterator<'a, 'b, TokenType> {
     type Item = TokenType;
 
     fn next(&mut self) -> Option<TokenType> {
@@ -123,12 +147,14 @@ impl<'a, TokenType: Token> Iterator for Lexer<'a, TokenType> {
 
         // find the best match
         let (rule_index, matched_length) = self
+            .lexer
             .regex_set
             .matches(next_input)
             .into_iter()
             .map(|rule_index| {
                 // find the regex corresponding to this index in `regex_list`
                 let matching_regex = self
+                    .lexer
                     .regex_list
                     .get(rule_index)
                     .expect("Internal error scanning the input");
@@ -162,6 +188,7 @@ impl<'a, TokenType: Token> Iterator for Lexer<'a, TokenType> {
         };
         let matched_text = &self.input[matched_index_start..matched_index_end];
         let (_, token_builder) = self
+            .lexer
             .production_rules
             .get(rule_index)
             .expect("Internal error scanning the input");

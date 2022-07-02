@@ -1,4 +1,4 @@
-/// A position in a character stream
+/// A position in a character stream.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct TextPoint {
     /// The vertical position of the point (starting at 1)
@@ -15,7 +15,7 @@ impl std::fmt::Display for TextPoint {
     }
 }
 
-/// A text region defined by a start point and an end point
+/// A text region defined by a start point and an end point.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Location {
     pub start: TextPoint,
