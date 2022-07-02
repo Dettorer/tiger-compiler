@@ -1,11 +1,11 @@
 use std::io::{self, Read};
 
-use tc::parser::Lexer;
+use tc::parser::build_tiger_lexer;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut input = String::new();
     io::stdin().read_to_string(&mut input)?;
-    let lexer = Lexer::new(&input);
+    let lexer = build_tiger_lexer(&input);
     for token in lexer {
         println!("{:?}", token);
     }

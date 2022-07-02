@@ -1,7 +1,7 @@
 mod lexer;
 mod location;
-mod tokens;
+mod tiger_lexer;
 
-pub use lexer::Lexer;
+pub use lexer::{Lexer, LexerRule, ScanError, Token, TokenBuilder};
 pub use location::{Location, TextPoint};
-pub use tokens::{Token, TokenVariant};
+pub use tiger_lexer::{build_tiger_lexer, TigerToken, TigerTokenVariant};
