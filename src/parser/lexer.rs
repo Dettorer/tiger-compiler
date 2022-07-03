@@ -173,37 +173,45 @@ impl<'a, 'b, TokenType: Token> Iterator for TokenIterator<'a, 'b, TokenType> {
             .max_by_key(|&(_idx, match_length)| match_length)
             .unwrap_or_else(|| panic!("Unknown token at {}", self.current_pos));
 
+        // Compute the ending point of the token
+        let matched_index_end = self.current_pos.index + matched_length - 1;
+        let matched_text = &self.input[self.current_pos.index..=matched_index_end];
+        let newline_count = matched_text.matches('\n').count();
+        let last_newline_pos = if newline_count != 0 {
+            // FIXME: last_newline_pos is a *byte* index, I need a way to translate it to a
+            // character index (or an rfind version that returns a char index)
+            matched_text.rfind('\n').unwrap_or_else(|| panic!("Internal lexer error on token at {}: counted a non-zero number of newlines in the matched text, but rfind() cannot find any.", self.current_pos))
+        } else {
+            0
+        };
+        let matched_end_point = TextPoint {
+            line: self.current_pos.line + newline_count,
+            column: if newline_count == 0 {
+                self.current_pos.column + matched_length - 1
+            } else {
+                matched_length - last_newline_pos - 1
+            },
+            index: matched_index_end,
+        };
+
         // Build the token
-        let matched_col_start = self.current_pos.column;
-        let matched_col_end = matched_col_start + matched_length;
-        let matched_index_start = self.current_pos.index;
-        let matched_index_end = matched_index_start + matched_length;
         let loc = Location {
             start: self.current_pos,
-            end: TextPoint {
-                line: matched_col_start,
-                column: matched_col_end,
-                index: matched_index_end,
-            },
+            end: matched_end_point,
         };
-        let matched_text = &self.input[matched_index_start..matched_index_end];
         let (_, token_builder) = self
             .lexer
             .production_rules
             .get(rule_index)
-            .expect("Internal error scanning the input");
+            .unwrap_or_else(|| panic!("Internal lexer error on token at {}: could not find the corresponding production", loc));
         let token = token_builder(loc, matched_text);
 
         // update our position in the input
-        self.current_pos.index += matched_length;
-        self.current_pos.column += matched_length;
-        // check for newlines in the matched text
-        if let Some(last_newline_pos) = matched_text.rfind('\n') {
-            self.current_pos.line += matched_text.matches('\n').count();
-            // FIXME: last_newline_pos is a *byte* index, I need a way to translate it to a
-            // character index (or an rfind version that returns a char index)
-            self.current_pos.column = matched_text.chars().count() - last_newline_pos;
-        }
+        self.current_pos = TextPoint {
+            line: matched_end_point.line,
+            column: matched_end_point.column + 1,
+            index: matched_end_point.index + 1,
+        };
 
         if token.is_ignored() {
             self.next()
