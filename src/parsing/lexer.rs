@@ -42,7 +42,7 @@ pub type LexerRule<TokenType> = (&'static str, TokenBuilder<TokenType>);
 /// # Example
 ///
 /// ```
-/// use tc::parser::{Lexer, Location, LexerRule, Token};
+/// use tc::parsing::{Lexer, Location, LexerRule, Token};
 ///
 /// #[derive(Debug, PartialEq)]
 /// enum ExampleToken {

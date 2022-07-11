@@ -68,7 +68,7 @@ impl TigerTokenVariant {
     /// # Example
     ///
     /// ```
-    /// use tc::parser::TigerTokenVariant;
+    /// use tc::parsing::TigerTokenVariant;
     ///
     /// assert!(!TigerTokenVariant::Comma.is_ignored());
     /// assert!(TigerTokenVariant::WhiteSpace.is_ignored());
@@ -95,7 +95,7 @@ impl TigerTokenVariant {
     /// # Example
     ///
     /// ```
-    /// use tc::parser::TigerTokenVariant;
+    /// use tc::parsing::TigerTokenVariant;
     ///
     /// match TigerTokenVariant::from_string_literal(r#""\tShort text ending with a dot\046""#).unwrap() {
     ///     TigerTokenVariant::StringLiteral(parsed) => assert_eq!(parsed, "\tShort text ending with a dot."),
@@ -168,7 +168,7 @@ impl TigerTokenVariant {
     /// # Example
     ///
     /// ```
-    /// use tc::parser::TigerTokenVariant;
+    /// use tc::parsing::TigerTokenVariant;
     ///
     /// match TigerTokenVariant::from_int_literal("42").unwrap() {
     ///     TigerTokenVariant::IntLiteral(integer) => assert_eq!(integer, 42),
@@ -296,7 +296,7 @@ const TIGER_LEXING_RULES: &[LexerRule<TigerToken>] = {
 /// # Example
 ///
 /// ```
-/// use tc::parser::build_tiger_lexer;
+/// use tc::parsing::build_tiger_lexer;
 ///
 /// let lexer = build_tiger_lexer();
 /// let token_iterator = lexer.scan("var arr1:arrtype := arrtype [10] of 0");

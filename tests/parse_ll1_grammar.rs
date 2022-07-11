@@ -2,7 +2,7 @@
 //! WIP
 use tc::{
     gen_grammar,
-    parser::{self, Grammar, Location},
+    parsing::{self, Grammar, Location},
 };
 
 /// Terminal grammar symbols
@@ -37,13 +37,13 @@ impl G311Token {
     }
 }
 
-impl parser::Token for G311Token {
+impl parsing::Token for G311Token {
     fn is_ignored(&self) -> bool {
         self.variant == G311TokenVariant::WhiteSpace
     }
 }
 
-const G311_LEXING_RULES: &[parser::LexerRule<G311Token>] =
+const G311_LEXING_RULES: &[parsing::LexerRule<G311Token>] =
     {
         use G311TokenVariant::*;
         &[
@@ -98,7 +98,7 @@ impl From<G311TokenVariant> for G311Symbol {
 
 #[test]
 fn parse_ll1_grammar() {
-    let lexer = parser::Lexer::new(G311_LEXING_RULES.to_owned());
+    let lexer = parsing::Lexer::new(G311_LEXING_RULES.to_owned());
     let input = "begin if 2 = 2 then print 1 else print 0; print 42 end".to_owned();
     for token in lexer.scan(&input) {
         println!("{:?}", token);

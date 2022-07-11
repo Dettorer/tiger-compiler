@@ -1,6 +1,6 @@
 use std::io::{self, Read};
 
-use tc::parser::build_tiger_lexer;
+use tc::parsing::build_tiger_lexer;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut input = String::new();

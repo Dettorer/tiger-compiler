@@ -3,7 +3,7 @@
 pub type Grammar<SymbolType, NonTerminalSymbolType> =
     std::collections::HashMap<Vec<SymbolType>, NonTerminalSymbolType>;
 
-/// Generate a grammar usable by the parser generation utilities from [`parser`](super).
+/// Generate a grammar usable by the parser generation utilities from [`parsing`](super).
 ///
 /// `.into()` will be called on every right-hand-side symbol. This allows, for example, to
 /// concisely reuse the type you use as lexer [`Token`](super::Token)s if you implement the
@@ -14,7 +14,7 @@ pub type Grammar<SymbolType, NonTerminalSymbolType> =
 /// This example builds a representation of Grammar 3.11 from Andrew Appel's book (page 45)
 ///
 /// ```
-/// use tc::{gen_grammar, parser::Grammar};
+/// use tc::{gen_grammar, parsing::Grammar};
 ///
 /// /// Terminal grammar symbols
 /// #[derive(Debug, PartialEq, Hash, Eq)]
