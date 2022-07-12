@@ -1,7 +1,6 @@
 //! Parser generation utilies, WIP
 
-pub type Grammar<SymbolType, NonTerminalSymbolType> =
-    std::collections::HashMap<Vec<SymbolType>, NonTerminalSymbolType>;
+pub type Grammar<Symbol> = std::collections::HashMap<Vec<Symbol>, Symbol>;
 
 /// Generate a grammar usable by the parser generation utilities from [`parsing`](super).
 ///
@@ -14,78 +13,68 @@ pub type Grammar<SymbolType, NonTerminalSymbolType> =
 /// This example builds a representation of Grammar 3.11 from Andrew Appel's book (page 45)
 ///
 /// ```
-/// use tc::{gen_grammar, parsing::Grammar};
+/// use strum::{EnumIter, IntoEnumIterator};
+/// use tc::{gen_grammar, parsing};
 ///
-/// /// Terminal grammar symbols
-/// #[derive(Debug, PartialEq, Hash, Eq)]
-/// enum G311TokenVariant {
+/// #[derive(Debug, PartialEq, Hash, Eq, EnumIter)]
+/// enum G311Symbol {
+///     // Terminal symbols
 ///     Begin,
 ///     Else,
 ///     End,
 ///     EqualSign,
 ///     If,
-///     Num,
+///     Num(i32),
 ///     Print,
 ///     Semicolon,
 ///     Then,
 ///     WhiteSpace,
-/// }
 ///
-/// /// Non-terminal grammar symbols
-/// #[derive(Debug, Hash, PartialEq, Eq)]
-/// enum G311NonTerminal {
+///     // Non-terminal symbols
 ///     Stm,
 ///     StmList,
 ///     Expr,
 /// }
 ///
-/// #[derive(Debug, Hash, PartialEq, Eq)]
-/// enum G311Symbol {
-///     /// Terminal symbol
-///     T(G311TokenVariant),
-///     /// Non-terminal symbol
-///     NT(G311NonTerminal),
-/// }
+/// impl parsing::Symbol<G311SymbolIter> for G311Symbol {
+///     fn is_terminal(&self) -> bool {
+///         use G311Symbol::*;
+///         !matches!(*self, Stm | StmList | Expr)
+///     }
 ///
-/// impl From<G311NonTerminal> for G311Symbol {
-///     fn from(sym: G311NonTerminal) -> Self {
-///         G311Symbol::NT(sym)
+///     fn possible_values() -> G311SymbolIter {
+///         Self::iter()
 ///     }
 /// }
 ///
-/// impl From<G311TokenVariant> for G311Symbol {
-///     fn from(sym: G311TokenVariant) -> Self {
-///         G311Symbol::T(sym)
-///     }
-/// }
-///
-/// use G311NonTerminal::*;
-/// use G311TokenVariant::*;
-/// let grammar: Grammar<G311Symbol, G311NonTerminal> = gen_grammar!(
-///     Stm -> If Expr Then Stm Else Stm,
-///     Stm -> Begin Stm StmList,
-///     Stm -> Print Expr,
-///     StmList -> End,
-///     StmList -> Semicolon Stm StmList,
-///     Expr -> Num EqualSign Num,
-/// );
+/// let grammar: parsing::Grammar<G311Symbol> = {
+///     use G311Symbol::*;
+///     gen_grammar!(
+///         Stm -> If Expr Then Stm Else Stm,
+///         Stm -> Begin Stm StmList,
+///         Stm -> Print Expr,
+///         StmList -> End,
+///         StmList -> Semicolon Stm StmList,
+///         Expr -> Num(0) EqualSign Num(0),
+///     )
+/// };
 /// ```
 #[macro_export]
 macro_rules! gen_grammar {
     (
-        /// One rule
+        // One rule
         $(
-            /// Symbol produced by the rule (reduce result)
+            // Symbol produced by the rule (reduce result)
             $lhs:ident
             ->
-            /// Sequence of symbols that produce (reduce to) the left hand side symbol
-            $($rhs:ident)+
+            // Sequence of symbols that produce (reduce to) the left hand side symbol
+            $($rhs:expr)+
         )
-        ,+ /// Repeat, separated by commas
+        ,+ // Repeat, separated by commas
 
-        /// Allow a trailing comma at the end of the rule list
+        // Allow a trailing comma at the end of the rule list
         $(,)?
     ) => {
-        std::collections::HashMap::from([ $((vec![$($rhs.into(), )+], $lhs)),+ ])
+        std::collections::HashMap::from([ $((vec![$($rhs, )+], $lhs)),+ ])
     }
 }

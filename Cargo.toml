@@ -8,3 +8,4 @@ default-run = "tc"
 
 [dependencies]
 regex = "1"
+strum = { version = "0.24", features = ["derive"] }
