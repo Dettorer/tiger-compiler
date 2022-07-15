@@ -1,6 +1,10 @@
 //! Parser generation utilies, WIP
+use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 
-pub type Grammar<SymbolType> = std::collections::HashMap<Vec<SymbolType>, SymbolType>;
+use super::{Lexer, LexerRule, Symbol, Token};
+
+pub type GrammarRules<SymbolType> = std::collections::HashMap<Vec<SymbolType>, SymbolType>;
 
 /// Generate a grammar usable by the parser generation utilities from [`parsing`](super).
 ///
@@ -14,7 +18,7 @@ pub type Grammar<SymbolType> = std::collections::HashMap<Vec<SymbolType>, Symbol
 ///
 /// ```
 /// use strum::{EnumIter, IntoEnumIterator};
-/// use tc::{gen_grammar, parsing};
+/// use tc::{gen_grammar_rules, parsing};
 ///
 /// #[derive(Debug, PartialEq, Hash, Eq, EnumIter)]
 /// enum G311Symbol {
@@ -49,9 +53,9 @@ pub type Grammar<SymbolType> = std::collections::HashMap<Vec<SymbolType>, Symbol
 ///     }
 /// }
 ///
-/// let grammar: parsing::Grammar<G311Symbol> = {
+/// let grammar: parsing::GrammarRules<G311Symbol> = {
 ///     use G311Symbol::*;
-///     gen_grammar!(
+///     gen_grammar_rules!(
 ///         Stm -> If Expr Then Stm Else Stm,
 ///         Stm -> Begin Stm StmList,
 ///         Stm -> Print Expr,
@@ -62,7 +66,7 @@ pub type Grammar<SymbolType> = std::collections::HashMap<Vec<SymbolType>, Symbol
 /// };
 /// ```
 #[macro_export]
-macro_rules! gen_grammar {
+macro_rules! gen_grammar_rules {
     (
         // One rule
         $(
@@ -78,5 +82,26 @@ macro_rules! gen_grammar {
         $(,)?
     ) => {
         std::collections::HashMap::from([ $((vec![$($rhs, )+], $lhs)),+ ])
+    }
+}
+
+/// The internal representation of a grammar
+#[derive(Debug)]
+pub struct Grammar<SymbolType> {
+    rules: GrammarRules<SymbolType>,
+    start_symbol: SymbolType,
+}
+
+impl<SymbolType> Grammar<SymbolType> {
+    /// Build a new grammar using the specified set of reduction rules and start symbol.
+    ///
+    /// # Example
+    ///
+    /// See [`gen_grammar_rules`](gen_grammar_rules).
+    pub fn new(start_symbol: SymbolType, rules: GrammarRules<SymbolType>) -> Self {
+        Grammar {
+            rules,
+            start_symbol,
+        }
     }
 }

@@ -3,8 +3,8 @@
 use strum::{EnumIter, IntoEnumIterator};
 
 use tc::{
-    gen_grammar,
-    parsing::{self, Grammar, Location, Symbol},
+    gen_grammar_rules,
+    parsing::{self, GrammarRules, Location, Symbol},
 };
 
 #[derive(Debug, PartialEq, Hash, Eq, EnumIter)]
@@ -93,9 +93,9 @@ fn parse_ll1_grammar() {
         println!("{:?}", token);
     }
 
-    let grammar: Grammar<G311Symbol> = {
+    let grammar: GrammarRules<G311Symbol> = {
         use G311Symbol::*;
-        gen_grammar!(
+        gen_grammar_rules!(
             Stm -> If Expr Then Stm Else Stm,
             Stm -> Begin Stm StmList,
             Stm -> Print Expr,
