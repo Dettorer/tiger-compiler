@@ -3,12 +3,11 @@ mod location;
 mod parser;
 mod tiger_lexer;
 
-pub trait Symbol<ValueIterator>
-where
-    ValueIterator: Iterator<Item = Self>,
-{
+pub trait Symbol {
+    type ValueIterator: Iterator<Item = Self>;
+
     fn is_terminal(&self) -> bool;
-    fn possible_values() -> ValueIterator;
+    fn possible_symbols() -> Self::ValueIterator;
 
     fn is_non_terminal(&self) -> bool {
         !self.is_terminal()

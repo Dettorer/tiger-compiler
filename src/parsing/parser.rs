@@ -1,6 +1,6 @@
 //! Parser generation utilies, WIP
 
-pub type Grammar<Symbol> = std::collections::HashMap<Vec<Symbol>, Symbol>;
+pub type Grammar<SymbolType> = std::collections::HashMap<Vec<SymbolType>, SymbolType>;
 
 /// Generate a grammar usable by the parser generation utilities from [`parsing`](super).
 ///
@@ -36,13 +36,15 @@ pub type Grammar<Symbol> = std::collections::HashMap<Vec<Symbol>, Symbol>;
 ///     Expr,
 /// }
 ///
-/// impl parsing::Symbol<G311SymbolIter> for G311Symbol {
+/// impl parsing::Symbol for G311Symbol {
+///     type ValueIterator = G311SymbolIter;
+///
 ///     fn is_terminal(&self) -> bool {
 ///         use G311Symbol::*;
 ///         !matches!(*self, Stm | StmList | Expr)
 ///     }
 ///
-///     fn possible_values() -> G311SymbolIter {
+///     fn possible_symbols() -> G311SymbolIter {
 ///         Self::iter()
 ///     }
 /// }
