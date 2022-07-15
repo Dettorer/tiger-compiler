@@ -4,7 +4,7 @@ use strum::{EnumIter, IntoEnumIterator};
 
 use tc::{
     gen_grammar_rules,
-    parsing::{self, GrammarRules, Location, Symbol},
+    parsing::{self, GrammarRules, Location, Symbol, Parser},
 };
 
 #[derive(Debug, PartialEq, Hash, Eq, EnumIter)]

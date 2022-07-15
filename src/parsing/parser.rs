@@ -105,3 +105,54 @@ impl<SymbolType> Grammar<SymbolType> {
         }
     }
 }
+
+pub struct Parser<TokenType, SymbolType>
+where
+    SymbolType: Symbol,
+    TokenType: Token,
+{
+    lexer: Lexer<TokenType>,
+    grammar_rules: GrammarRules<SymbolType>,
+    start_symbol: SymbolType,
+
+    nullable_symbols: HashSet<SymbolType>,
+    first_sets: HashMap<SymbolType, HashSet<SymbolType>>,
+    follow_sets: HashMap<SymbolType, HashSet<SymbolType>>,
+}
+
+impl<TokenType, SymbolType> Parser<TokenType, SymbolType>
+where
+    TokenType: Token,
+    SymbolType: Symbol + Eq + PartialEq + Hash + Copy,
+{
+    pub fn new(
+        lexing_rules: Vec<LexerRule<TokenType>>,
+        grammar_rules: GrammarRules<SymbolType>,
+        start_symbol: SymbolType,
+    ) -> Self {
+        let mut new_parser = Parser {
+            lexer: Lexer::new(lexing_rules),
+            grammar_rules,
+            start_symbol,
+            nullable_symbols: HashSet::new(),
+            first_sets: HashMap::new(),
+            follow_sets: HashMap::new(),
+        };
+
+        new_parser.populate_grammar_sets();
+
+        new_parser
+    }
+
+    /// Fill the nullable, FIRST and FOLLOW sets for the current grammar
+    fn populate_grammar_sets(&mut self) {
+        todo!();
+    }
+
+    /// Parse the input string and return a boolean indicating if it is syntactically correct.
+    ///
+    /// The current algorithm is predictive parsing of LL(1) grammar.
+    pub fn parse(_input: &str) -> bool {
+        todo!();
+    }
+}
