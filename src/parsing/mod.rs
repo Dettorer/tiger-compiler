@@ -7,6 +7,7 @@ pub trait Symbol {
     type ValueIterator: Iterator<Item = Self>;
 
     fn is_terminal(&self) -> bool;
+    fn is_ignored(&self) -> bool;
     fn possible_symbols() -> Self::ValueIterator;
 
     fn is_non_terminal(&self) -> bool {
