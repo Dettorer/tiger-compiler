@@ -156,3 +156,112 @@ where
         todo!();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A proof-of-concept parser for grammar 3.11 in Andrew Appel's book (page 45)
+    // WIP
+    use strum::{EnumIter, IntoEnumIterator};
+    use crate::parsing::Location;
+
+    #[derive(Debug, PartialEq, Hash, Eq, EnumIter, Clone, Copy)]
+    enum G311Symbol {
+        // Terminal symbols
+        Begin,
+        Else,
+        End,
+        EqualSign,
+        If,
+        Num(i32),
+        Print,
+        Semicolon,
+        Then,
+        WhiteSpace,
+
+        // Non-terminal symbols
+        Stm,
+        StmList,
+        Expr,
+    }
+
+    impl Symbol for G311Symbol {
+        type ValueIterator = G311SymbolIter;
+        fn is_terminal(&self) -> bool {
+            use G311Symbol::*;
+            !matches!(*self, Stm | StmList | Expr)
+        }
+
+        fn possible_symbols() -> G311SymbolIter {
+            Self::iter()
+        }
+    }
+
+    #[derive(Debug)]
+    struct G311Token {
+        symbol: G311Symbol,
+        location: Location,
+    }
+
+    impl G311Token {
+        pub fn new(symbol: G311Symbol, location: Location) -> Self {
+            assert!(
+                symbol.is_terminal(),
+                "cannot create a token with non-terminal symbol {:?}",
+                symbol
+            );
+            G311Token { symbol, location }
+        }
+    }
+
+    impl Token for G311Token {
+        fn is_ignored(&self) -> bool {
+            self.symbol == G311Symbol::WhiteSpace
+        }
+    }
+
+    const G311_LEXING_RULES: &[LexerRule<G311Token>] = {
+        use G311Symbol::*;
+        &[
+            (r"^begin", |loc, _| G311Token::new(Begin, loc)),
+            (r"^else", |loc, _| G311Token::new(Else, loc)),
+            (r"^end", |loc, _| G311Token::new(End, loc)),
+            (r"^=", |loc, _| G311Token::new(EqualSign, loc)),
+            (r"^if", |loc, _| G311Token::new(If, loc)),
+            (r"^\d+", |loc, matched_text| {
+                G311Token::new(
+                    Num(matched_text.parse().unwrap_or_else(|err| {
+                        panic!("invalid integer literal at {}: {}", loc, err)
+                    })),
+                    loc,
+                )
+            }),
+            (r"^print", |loc, _| G311Token::new(Print, loc)),
+            (r"^;", |loc, _| G311Token::new(Semicolon, loc)),
+            (r"^then", |loc, _| G311Token::new(Then, loc)),
+            (r"^\s+", |loc, _| G311Token::new(WhiteSpace, loc)),
+        ]
+    };
+
+    #[test]
+    fn parse_ll1_grammar() {
+        let grammar_rules: GrammarRules<G311Symbol> = {
+            use G311Symbol::*;
+            let num_def = Default::default();
+            gen_grammar_rules!(
+                Stm -> If Expr Then Stm Else Stm,
+                Stm -> Begin Stm StmList,
+                Stm -> Print Expr,
+                StmList -> End,
+                StmList -> Semicolon Stm StmList,
+                Expr -> Num(num_def) EqualSign Num(num_def),
+            )
+        };
+
+        let parser =
+            Parser::new(G311_LEXING_RULES.to_owned(), grammar_rules, G311Symbol::Stm);
+
+        let input = "begin if 2 = 2 then print 1 else print 0; print 42 end";
+    }
+}
