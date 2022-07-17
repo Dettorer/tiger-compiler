@@ -1,10 +1,13 @@
-use super::{Lexer, LexerRule, Location, ScanError, Token};
 use std::{error::Error, num::ParseIntError};
+
+use strum::{EnumIter, IntoEnumIterator};
+
+use super::{Lexer, LexerRule, Location, ScanError, Token, Symbol};
 
 /// Every valid token type in the Tiger language grammar. `Comment`, `NewLine` and `WhiteSpace`
 /// aren't technically tokens in the grammar but are used by the lexer to recognize and ignore part
 /// of the input.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, EnumIter, Clone)]
 pub enum TigerTokenVariant {
     // reserved keywords
     Array,
@@ -61,24 +64,35 @@ pub enum TigerTokenVariant {
     WhiteSpace,
 }
 
-impl TigerTokenVariant {
-    /// Return `true` for tokens that aren't really in the Tiger language grammar and are ignored
-    /// by the lexer
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use tc::parsing::TigerTokenVariant;
-    ///
-    /// assert!(!TigerTokenVariant::Comma.is_ignored());
-    /// assert!(TigerTokenVariant::WhiteSpace.is_ignored());
-    /// ```
-    pub fn is_ignored(&self) -> bool {
+impl Symbol for TigerTokenVariant {
+    type ValueIterator = TigerTokenVariantIter;
+
+    fn possible_symbols() -> Self::ValueIterator {
+        Self::iter()
+    }
+
+    fn is_ignored(&self) -> bool {
         matches!(
             self,
             TigerTokenVariant::Comment | TigerTokenVariant::NewLine | TigerTokenVariant::WhiteSpace
         )
     }
+
+    fn is_terminal(&self) -> bool {
+        true
+    }
+
+    fn to_default(&self) -> Self {
+        match self {
+            Self::Id(_) => Self::Id(Default::default()),
+            Self::IntLiteral(_) => Self::IntLiteral(Default::default()),
+            Self::StringLiteral(_) => Self::StringLiteral(Default::default()),
+            _ => self.clone(),
+        }
+    }
+}
+
+impl TigerTokenVariant {
 
     /// Parse an array of `u8` as an array of characters representing an integer in decimal and
     /// return the `char` whose ascii code is that integer
@@ -199,8 +213,14 @@ impl TigerToken {
 }
 
 impl Token for TigerToken {
+    type SymbolType = TigerTokenVariant;
+
     fn is_ignored(&self) -> bool {
         self.variant.is_ignored()
+    }
+
+    fn symbol(&self) -> &TigerTokenVariant {
+        &self.variant
     }
 }
 

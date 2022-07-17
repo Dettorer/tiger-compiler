@@ -6,9 +6,11 @@ mod tiger_lexer;
 pub trait Symbol {
     type ValueIterator: Iterator<Item = Self>;
 
+    fn possible_symbols() -> Self::ValueIterator;
+
     fn is_terminal(&self) -> bool;
     fn is_ignored(&self) -> bool;
-    fn possible_symbols() -> Self::ValueIterator;
+    fn to_default(&self) -> Self;
 
     fn is_non_terminal(&self) -> bool {
         !self.is_terminal()

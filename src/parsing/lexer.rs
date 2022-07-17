@@ -2,11 +2,14 @@
 //! [regex-lexer](https://crates.io/crates/regex-lexer) crate. It essentially works the same way,
 //! with the addition of a [`Location`](Location) attached to each token
 
-use super::{Location, TextPoint};
+use super::{Location, TextPoint, Symbol};
 use regex::{Regex, RegexSet};
 
 pub trait Token {
+    type SymbolType: Symbol;
+
     fn is_ignored(&self) -> bool;
+    fn symbol(&self) -> &Self::SymbolType;
 }
 
 #[derive(Debug)]
@@ -42,9 +45,11 @@ pub type LexerRule<TokenType> = (&'static str, TokenBuilder<TokenType>);
 /// # Example
 ///
 /// ```
-/// use tc::parsing::{Lexer, Location, LexerRule, Token};
+/// use tc::parsing::{Lexer, Location, LexerRule, Token, Symbol};
 ///
-/// #[derive(Debug, PartialEq)]
+/// use strum::{EnumIter, IntoEnumIterator};
+///
+/// #[derive(Debug, PartialEq, Clone, EnumIter)]
 /// enum ExampleToken {
 ///     WhiteSpace,
 ///     Else,
@@ -54,9 +59,36 @@ pub type LexerRule<TokenType> = (&'static str, TokenBuilder<TokenType>);
 ///     Then,
 /// }
 ///
+/// impl Symbol for ExampleToken {
+///     type ValueIterator = ExampleTokenIter;
+///
+///     fn possible_symbols() -> Self::ValueIterator {
+///         Self::iter()
+///     }
+///
+///     fn is_ignored(&self) -> bool {
+///         *self == Self::WhiteSpace
+///     }
+///
+///     fn is_terminal(&self) -> bool {
+///         true
+///     }
+///
+///     fn to_default(&self) -> Self {
+///         match self {
+///             Self::Id(_) => Self::Id(Default::default()),
+///             _ => self.clone(),
+///         }
+///     }
+/// }
+///
 /// impl Token for ExampleToken {
+///     type SymbolType = Self;
 ///     fn is_ignored(&self) -> bool {
 ///         *self == ExampleToken::WhiteSpace
+///     }
+///     fn symbol(&self) -> &Self {
+///         self
 ///     }
 /// }
 ///

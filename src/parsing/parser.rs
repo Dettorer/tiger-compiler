@@ -2,8 +2,9 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::iter::Peekable;
 
-use super::{Lexer, LexerRule, Symbol, Token};
+use super::{Lexer, LexerRule, Symbol, Token, TokenIterator};
 
 pub type GrammarRules<SymbolType> = std::collections::HashMap<Vec<SymbolType>, SymbolType>;
 
@@ -21,7 +22,7 @@ pub type GrammarRules<SymbolType> = std::collections::HashMap<Vec<SymbolType>, S
 /// use strum::{EnumIter, IntoEnumIterator};
 /// use tc::{gen_grammar_rules, parsing};
 ///
-/// #[derive(Debug, PartialEq, Hash, Eq, EnumIter)]
+/// #[derive(Debug, PartialEq, Hash, Eq, EnumIter, Clone, Copy)]
 /// enum G311Symbol {
 ///     // Terminal symbols
 ///     Begin,
@@ -44,13 +45,24 @@ pub type GrammarRules<SymbolType> = std::collections::HashMap<Vec<SymbolType>, S
 /// impl parsing::Symbol for G311Symbol {
 ///     type ValueIterator = G311SymbolIter;
 ///
+///     fn possible_symbols() -> G311SymbolIter {
+///         Self::iter()
+///     }
+///
 ///     fn is_terminal(&self) -> bool {
 ///         use G311Symbol::*;
 ///         !matches!(*self, Stm | StmList | Expr)
 ///     }
 ///
-///     fn possible_symbols() -> G311SymbolIter {
-///         Self::iter()
+///     fn is_ignored(&self) -> bool {
+///         *self == Self::WhiteSpace
+///     }
+///
+///     fn to_default(&self) -> Self {
+///         match self {
+///             Self::Num(_) => Self::Num(Default::default()),
+///             _ => *self,
+///         }
 ///     }
 /// }
 ///
@@ -104,7 +116,7 @@ where
 
 impl<TokenType, SymbolType> Parser<TokenType, SymbolType>
 where
-    TokenType: Token,
+    TokenType: Token<SymbolType = SymbolType>,
     SymbolType: Symbol + Eq + PartialEq + Hash + Copy + Debug,
 {
     pub fn new(
@@ -314,11 +326,54 @@ where
         Ok(())
     }
 
+    fn derive(
+        &self,
+        current_symbol: SymbolType,
+        token_stream: &mut Peekable<TokenIterator<TokenType>>,
+    ) -> bool {
+        let next_symbol = match token_stream.peek() {
+            Some(symbol) => symbol.symbol(),
+            None => return false,
+        };
+        self.parsing_table
+            .get(&current_symbol)
+            .unwrap_or_else(|| {
+                // TODO: proper error
+                panic!(
+                    "couldn't find nonterminal {:?} in {:?}",
+                    current_symbol,
+                    self.parsing_table.keys()
+                )
+            })
+            .get(&next_symbol.to_default())
+            .unwrap_or_else(|| {
+                // TODO: proper error
+                panic!(
+                    "couldn't find terminal {:?} in {:?}",
+                    next_symbol,
+                    self.parsing_table[&current_symbol].keys()
+                )
+            })
+            .iter()
+            .all(|expected_symbol| {
+                if expected_symbol.is_terminal() {
+                    dbg!(token_stream.peek().unwrap().symbol(), expected_symbol);
+                    match token_stream.next() {
+                        Some(input_token) => dbg!(&input_token.symbol().to_default() == expected_symbol),
+                        None => false,
+                    }
+                } else {
+                    self.derive(*expected_symbol, token_stream)
+                }
+            })
+    }
+
     /// Parse the input string and return a boolean indicating if it is syntactically correct.
     ///
     /// The current algorithm is LL(1) (predictive parsing)
-    pub fn parse(&self, _input: &str) -> bool {
-        todo!();
+    pub fn parse(&self, input: &str) -> bool {
+        let mut token_stream = self.lexer.scan(input).peekable();
+        self.derive(self.start_symbol, &mut token_stream) && token_stream.next().is_none()
     }
 }
 
@@ -383,9 +438,15 @@ mod tests {
         fn possible_symbols() -> G311SymbolIter {
             Self::iter()
         }
+
+        fn to_default(&self) -> Self {
+            match self {
+                Self::Num(_) => Self::Num(Default::default()),
+                _ => *self,
+            }
+        }
     }
 
-    #[derive(Debug)]
     struct G311Token {
         symbol: G311Symbol,
         location: Location,
@@ -403,8 +464,14 @@ mod tests {
     }
 
     impl Token for G311Token {
+        type SymbolType = G311Symbol;
+
         fn is_ignored(&self) -> bool {
             self.symbol.is_ignored()
+        }
+
+        fn symbol(&self) -> &Self::SymbolType {
+            &self.symbol
         }
     }
 
@@ -463,9 +530,15 @@ mod tests {
                 (vec![Begin, Stm, StmList], HashSet::from([Begin])),
                 (vec![Else, Stm], HashSet::from([Else])),
                 (vec![EqualSign, Num(num_def)], HashSet::from([EqualSign])),
-                (vec![Expr, Then, Stm, Else, Stm], HashSet::from([Num(num_def)])),
+                (
+                    vec![Expr, Then, Stm, Else, Stm],
+                    HashSet::from([Num(num_def)]),
+                ),
                 (vec![If, Expr, Then, Stm, Else, Stm], HashSet::from([If])),
-                (vec![Num(num_def), EqualSign, Num(num_def)], HashSet::from([Num(num_def)])),
+                (
+                    vec![Num(num_def), EqualSign, Num(num_def)],
+                    HashSet::from([Num(num_def)]),
+                ),
                 (vec![Print, Expr], HashSet::from([Print])),
                 (vec![Semicolon, Stm, StmList], HashSet::from([Semicolon])),
                 (vec![Stm, Else, Stm], HashSet::from([Print, If, Begin])),
@@ -492,7 +565,12 @@ mod tests {
             parser.assert_grammar_sets(&expected_nullable, &expected_first, &expected_follow);
         }
 
-        assert!(parser.parse("begin if 2 = 2 then print 1 else print 0; print 42 end"));
+        assert!(parser.parse("begin if 2 = 2 then print 1 = 1 else print 0 = 1; print 42 = 1337 end"));
+
+        // use `print` with a `Num` instead of a full `Expr`
+        assert!(!parser.parse("begin if 2 = 2 then print 1 else print 0; print 42 end"));
+        // trailing token after the main Stm
+        assert!(!parser.parse("begin if 2 = 2 then print 1 = 1 else print 0 = 1; print 42 = 1337 end begin end"));
     }
 
     // Parsing the grammar 3.12 in Andrew Appel's book (page 45)
@@ -524,9 +602,12 @@ mod tests {
         fn possible_symbols() -> G312SymbolIter {
             Self::iter()
         }
+
+        fn to_default(&self) -> Self {
+            *self
+        }
     }
 
-    #[derive(Debug)]
     struct G312Token {
         symbol: G312Symbol,
         location: Location,
@@ -544,8 +625,14 @@ mod tests {
     }
 
     impl Token for G312Token {
+        type SymbolType = G312Symbol;
+
         fn is_ignored(&self) -> bool {
             false
+        }
+
+        fn symbol(&self) -> &Self::SymbolType {
+            &self.symbol
         }
     }
 
@@ -619,8 +706,5 @@ mod tests {
             ]);
             parser.assert_grammar_sets(&expected_nullable, &expected_first, &expected_follow);
         }
-
-        assert!(parser.parse("d"));
-        assert!(parser.parse("ca"));
     }
 }
