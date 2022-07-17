@@ -17,5 +17,5 @@ pub trait Symbol {
 
 pub use lexer::{Lexer, LexerRule, ScanError, Token, TokenBuilder, TokenIterator};
 pub use location::{Location, TextPoint};
-pub use parser::{GrammarRules, Grammar, Parser};
+pub use parser::{GrammarRules, Parser};
 pub use tiger_lexer::{build_tiger_lexer, TigerToken, TigerTokenVariant};

@@ -86,27 +86,6 @@ macro_rules! gen_grammar_rules {
     }
 }
 
-/// The internal representation of a grammar
-#[derive(Debug)]
-pub struct Grammar<SymbolType> {
-    rules: GrammarRules<SymbolType>,
-    start_symbol: SymbolType,
-}
-
-impl<SymbolType> Grammar<SymbolType> {
-    /// Build a new grammar using the specified set of reduction rules and start symbol.
-    ///
-    /// # Example
-    ///
-    /// See [`gen_grammar_rules`](gen_grammar_rules).
-    pub fn new(start_symbol: SymbolType, rules: GrammarRules<SymbolType>) -> Self {
-        Grammar {
-            rules,
-            start_symbol,
-        }
-    }
-}
-
 pub struct Parser<TokenType, SymbolType>
 where
     SymbolType: Symbol,
@@ -116,9 +95,11 @@ where
     grammar_rules: GrammarRules<SymbolType>,
     start_symbol: SymbolType,
 
-    nullable_symbols: HashSet<SymbolType>,
-    first_sets: HashMap<SymbolType, HashSet<SymbolType>>,
+    nullable_symbols: HashSet<Vec<SymbolType>>,
+    first_sets: HashMap<Vec<SymbolType>, HashSet<SymbolType>>,
     follow_sets: HashMap<SymbolType, HashSet<SymbolType>>,
+
+    parsing_table: HashMap<SymbolType, HashMap<SymbolType, Vec<SymbolType>>>,
 }
 
 impl<TokenType, SymbolType> Parser<TokenType, SymbolType>
@@ -130,7 +111,7 @@ where
         lexing_rules: Vec<LexerRule<TokenType>>,
         grammar_rules: GrammarRules<SymbolType>,
         start_symbol: SymbolType,
-    ) -> Self {
+    ) -> Result<Self, String> {
         let mut new_parser = Parser {
             lexer: Lexer::new(lexing_rules),
             grammar_rules,
@@ -138,21 +119,17 @@ where
             nullable_symbols: HashSet::new(),
             first_sets: HashMap::new(),
             follow_sets: HashMap::new(),
+            parsing_table: HashMap::new(),
         };
 
         new_parser.populate_grammar_sets();
+        new_parser.build_parsing_table()?;
 
-        new_parser
+        Ok(new_parser)
     }
 
     /// Fill the nullable, FIRST and FOLLOW sets for the current grammar
     fn populate_grammar_sets(&mut self) {
-        // Initialize the sets
-        for symbol in SymbolType::possible_symbols().filter(|sym| !sym.is_ignored()) {
-            self.first_sets.insert(symbol, HashSet::new());
-            self.follow_sets.insert(symbol, HashSet::new());
-        }
-
         // Algorithm 3.13 from Andrew Appel's book, page 49.
         // comments starting with //* are pseudo code from the book
 
@@ -161,13 +138,8 @@ where
             SymbolType::possible_symbols().filter(|sym| sym.is_terminal() && !sym.is_ignored())
         {
             self.first_sets
-                .get_mut(&variant)
-                .unwrap_or_else(|| {
-                    panic!(
-                        "internal compiler error initializing the grammar sets (`{}[{:?}]` doesn't exist)",
-                        stringify!(self.first_sets), variant
-                    )
-                })
+                .entry(vec![variant])
+                .or_default()
                 .insert(variant);
         }
 
@@ -181,15 +153,16 @@ where
                 //* if Y1...Yk are all nullable (or if k = 0)
                 if symbols
                     .iter()
-                    .all(|sym| self.nullable_symbols.contains(sym))
+                    .all(|sym| self.nullable_symbols.contains(&vec![*sym]))
                 {
                     //* then nullable[X] <- true
-                    something_changed = something_changed || self.nullable_symbols.insert(*product);
+                    something_changed =
+                        something_changed || self.nullable_symbols.insert(vec![*product]);
                 }
 
                 //* for each i from 1 to k, each j from i + 1 to k
                 // skip empty rules
-                if symbols.len() == 0 {
+                if symbols.is_empty() {
                     continue;
                 }
                 let k = symbols.len() - 1;
@@ -203,28 +176,17 @@ where
                     macro_rules! extend_parser_set {
                         ($extendee_set:expr, $extendee_id:expr, $extension_set:expr, $extension_id:expr) => {{
                             // extract the two sets
-                            let mut extendee = $extendee_set.remove($extendee_id).unwrap_or_else(||
-                                panic!(
-                                    "internal compiler error initializing the grammar sets (extend_parser_set: the extendee `{}[{:?}]` doesn't exist)",
-                                    stringify!($extendee_set),
-                                    $extendee_id
-                                ),
-                            );
-                            let extension = $extension_set.get($extension_id).unwrap_or_else(||
-                                panic!(
-                                    "internal compiler error initializing the grammar sets (extend_parser_set: the extension `{}[{:?}]` doesn't exist)",
-                                    stringify!($extension_set),
-                                    $extension_id
-                                ),
-                            );
+                            let mut extendee =
+                                $extendee_set.remove(&$extendee_id).unwrap_or_default();
+                            let extension = $extension_set.entry($extension_id).or_default();
 
                             // do the actual extension
                             let old_len = extendee.len();
-                            extendee.extend(extension);
+                            extendee.extend(extension.iter());
                             let modified = old_len != extendee.len();
 
                             // insert the extended set back
-                            $extendee_set.insert(*$extendee_id, extendee);
+                            $extendee_set.insert($extendee_id, extendee);
 
                             // return a boolean indicating that the extended set is indeed
                             // different than before
@@ -240,24 +202,28 @@ where
                     if (i == 0
                         || symbols[0..i]
                             .iter()
-                            .all(|sym| self.nullable_symbols.contains(sym)))
+                            .all(|sym| self.nullable_symbols.contains(&vec![*sym])))
                         && product != &symbols[i]
                     {
                         //* then FIRST[X] <- FIRST[X] U FIRST[Yi]
                         something_changed = something_changed
-                            || extend_parser_set!(self.first_sets, product, &symbols[i]);
+                            || extend_parser_set!(
+                                self.first_sets,
+                                vec![*product],
+                                vec![symbols[i]]
+                            );
                     }
 
                     //* if Yi+1...Yk are all nullable (or if i = k)
                     if (i == k
                         || symbols[i + 1..=k]
                             .iter()
-                            .all(|sym| self.nullable_symbols.contains(sym)))
+                            .all(|sym| self.nullable_symbols.contains(&vec![*sym])))
                         && product != &symbols[i]
                     {
                         //* then FOLLOW[Yi] <- FOLLOW[Yi] U FOLLOW[X]
                         something_changed = something_changed
-                            || extend_parser_set!(self.follow_sets, &symbols[i], product);
+                            || extend_parser_set!(self.follow_sets, symbols[i], *product);
                     }
 
                     for j in (i + 1)..=k {
@@ -265,7 +231,7 @@ where
                         if i + 1 == j
                             || symbols[i + 1..j]
                                 .iter()
-                                .all(|sym| self.nullable_symbols.contains(sym))
+                                .all(|sym| self.nullable_symbols.contains(&vec![*sym]))
                         {
                             //* then FOLLOW[Yi] <- FOLLOW[Yi] U FIRST[Yj]
                             // XXX: The macro isn't really useful here since the sets are different
@@ -276,20 +242,81 @@ where
                             something_changed = something_changed
                                 || extend_parser_set!(
                                     self.follow_sets,
-                                    &symbols[i],
+                                    symbols[i],
                                     self.first_sets,
-                                    &symbols[j]
+                                    vec![symbols[j]]
                                 );
                         }
+                    }
+
+                    //* a string γ is nullable if each symbol in γ is nullable
+                    if symbols[i..=k]
+                        .iter()
+                        .all(|sym| self.nullable_symbols.contains(&vec![*sym]))
+                    {
+                        something_changed = something_changed
+                            || self.nullable_symbols.insert(symbols[i..=k].to_owned());
+                    }
+
+                    //* FIRST(Xγ) = FIRST[X]                if not nullable[X]
+                    //* FIRST(Xγ) = FIRST[X] U FIRST(γ)     if nullable[X]
+                    something_changed = something_changed
+                        || extend_parser_set!(
+                            self.first_sets,
+                            symbols[i..=k].to_owned(),
+                            vec![symbols[i]]
+                        );
+                    if self.nullable_symbols.contains(&vec![symbols[i]]) {
+                        something_changed = something_changed
+                            || extend_parser_set!(
+                                self.first_sets,
+                                symbols[i..=k].to_owned(),
+                                symbols[i + 1..=k].to_owned()
+                            )
                     }
                 }
             }
         }
     }
 
+    fn build_parsing_table(&mut self) -> Result<(), String> {
+        for (symbols, product) in self.grammar_rules.iter() {
+            for first_sym in &self.first_sets[symbols] {
+                let insert_result = self
+                    .parsing_table
+                    .entry(*product)
+                    .or_default()
+                    .insert(*first_sym, symbols.clone())
+                    // `.insert` returns `Some(symbols)` if a value already existed, which means
+                    // that the grammar is not LL(1), but only if what we're trying to insert isn't
+                    // identical to what's already in the table.
+                    .and_then(|existing_symbols| {
+                        if &existing_symbols != symbols {
+                            Some(existing_symbols)
+                        } else {
+                            None
+                        }
+                    });
+                if let Some(existing_symbols) = insert_result {
+                    return Err(
+                        format!(
+                            "Ambiguous grammar: duplicate parsing table entry for symbols {:?} and {:?}, trying to insert {:?} while there already is {:?}",
+                            product,
+                            first_sym,
+                            symbols,
+                            existing_symbols,
+                        )
+                    );
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Parse the input string and return a boolean indicating if it is syntactically correct.
     ///
-    /// The current algorithm is predictive parsing of LL(1) grammar.
+    /// The current algorithm is LL(1) (predictive parsing)
     pub fn parse(&self, _input: &str) -> bool {
         todo!();
     }
@@ -309,8 +336,8 @@ mod tests {
     {
         pub fn assert_grammar_sets(
             &self,
-            nullable_symbols: &HashSet<SymbolType>,
-            first_sets: &HashMap<SymbolType, HashSet<SymbolType>>,
+            nullable_symbols: &HashSet<Vec<SymbolType>>,
+            first_sets: &HashMap<Vec<SymbolType>, HashSet<SymbolType>>,
             follow_sets: &HashMap<SymbolType, HashSet<SymbolType>>,
         ) {
             assert_eq!(*nullable_symbols, self.nullable_symbols);
@@ -419,19 +446,31 @@ mod tests {
             )
         };
 
-        let parser = Parser::new(G311_LEXING_RULES.to_owned(), grammar_rules, G311Symbol::Stm);
+        let parser =
+            Parser::new(G311_LEXING_RULES.to_owned(), grammar_rules, G311Symbol::Stm).unwrap();
 
         {
             use G311Symbol::*;
-            let expected_nullable: HashSet<G311Symbol> = HashSet::new();
+            let expected_nullable: HashSet<Vec<G311Symbol>> = HashSet::new();
             let mut expected_first = G311Symbol::possible_symbols()
                 .filter(|sym| sym.is_terminal() && !sym.is_ignored())
-                .map(|sym| (sym, HashSet::from([sym])))
+                .map(|sym| (vec![sym], HashSet::from([sym])))
                 .collect::<HashMap<_, _>>();
             expected_first.extend([
-                (Stm, HashSet::from([If, Begin, Print])),
-                (StmList, HashSet::from([Semicolon, End])),
-                (Expr, HashSet::from([Num(num_def)])),
+                (vec![Stm], HashSet::from([If, Begin, Print])),
+                (vec![StmList], HashSet::from([Semicolon, End])),
+                (vec![Expr], HashSet::from([Num(num_def)])),
+                (vec![Begin, Stm, StmList], HashSet::from([Begin])),
+                (vec![Else, Stm], HashSet::from([Else])),
+                (vec![EqualSign, Num(num_def)], HashSet::from([EqualSign])),
+                (vec![Expr, Then, Stm, Else, Stm], HashSet::from([Num(num_def)])),
+                (vec![If, Expr, Then, Stm, Else, Stm], HashSet::from([If])),
+                (vec![Num(num_def), EqualSign, Num(num_def)], HashSet::from([Num(num_def)])),
+                (vec![Print, Expr], HashSet::from([Print])),
+                (vec![Semicolon, Stm, StmList], HashSet::from([Semicolon])),
+                (vec![Stm, Else, Stm], HashSet::from([Print, If, Begin])),
+                (vec![Stm, StmList], HashSet::from([Print, If, Begin])),
+                (vec![Then, Stm, Else, Stm], HashSet::from([Then])),
             ]);
             let expected_follow = HashMap::from([
                 (Begin, HashSet::from([If, Begin, Print])),
@@ -533,19 +572,42 @@ mod tests {
             )
         };
 
-        let parser = Parser::new(G312_LEXING_RULES.to_owned(), grammar_rules, G312Symbol::Z);
+        assert!(
+            Parser::new(
+                G312_LEXING_RULES.to_owned(),
+                grammar_rules.clone(),
+                G312Symbol::Z
+            )
+            .is_err(),
+            "Grammar G312 is ambiguous for LL(1) parsers, but the parser built successfully"
+        );
+
+        // manually build the parser in order to test the grammar sets
+        let mut parser = Parser {
+            lexer: Lexer::new(G312_LEXING_RULES.to_owned()),
+            grammar_rules,
+            start_symbol: G312Symbol::Z,
+            nullable_symbols: HashSet::new(),
+            first_sets: HashMap::new(),
+            follow_sets: HashMap::new(),
+            parsing_table: HashMap::new(),
+        };
+        parser.populate_grammar_sets();
 
         {
             use G312Symbol::*;
-            let expected_nullable = HashSet::from([X, Y]);
+            let expected_nullable = HashSet::from([vec![X], vec![Y]]);
             let mut expected_first = G312Symbol::possible_symbols()
                 .filter(|sym| sym.is_terminal())
-                .map(|sym| (sym, HashSet::from([sym])))
+                .map(|sym| (vec![sym], HashSet::from([sym])))
                 .collect::<HashMap<_, _>>();
             expected_first.extend([
-                (X, HashSet::from([A, C])),
-                (Y, HashSet::from([C])),
-                (Z, HashSet::from([A, C, D])),
+                (vec![X], HashSet::from([A, C])),
+                (vec![Y], HashSet::from([C])),
+                (vec![Z], HashSet::from([A, C, D])),
+                (vec![X, Y, Z], HashSet::from([A, C, D])),
+                (vec![Y, Z], HashSet::from([A, C, D])),
+                (vec![], HashSet::new()),
             ]);
             let expected_follow = HashMap::from([
                 (X, HashSet::from([A, C, D])),
