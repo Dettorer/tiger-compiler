@@ -10,6 +10,7 @@ pub trait Token {
 
     fn is_ignored(&self) -> bool;
     fn symbol(&self) -> &Self::SymbolType;
+    fn build_end_of_input_token(location: Location) -> Self;
 }
 
 #[derive(Debug)]
@@ -57,6 +58,8 @@ pub type LexerRule<TokenType> = (&'static str, TokenBuilder<TokenType>);
 ///     Id(String),
 ///     If,
 ///     Then,
+///     // Grammar definition helper
+///     ParseEnd,
 /// }
 ///
 /// impl Symbol for ExampleToken {
@@ -90,6 +93,9 @@ pub type LexerRule<TokenType> = (&'static str, TokenBuilder<TokenType>);
 ///     fn symbol(&self) -> &Self {
 ///         self
 ///     }
+///     fn build_end_of_input_token(location: Location) -> Self {
+///         ExampleToken::ParseEnd
+///     }
 /// }
 ///
 /// let lexing_rules: Vec<LexerRule<ExampleToken>> = vec![
@@ -119,6 +125,7 @@ pub type LexerRule<TokenType> = (&'static str, TokenBuilder<TokenType>);
 ///         ExampleToken::Id("b".to_owned()),
 ///         ExampleToken::Else,
 ///         ExampleToken::Id("c".to_owned()),
+///         ExampleToken::ParseEnd,
 ///     ]
 /// );
 /// ```
@@ -157,6 +164,7 @@ impl<TokenType: Token> Lexer<TokenType> {
                 column: 1,
                 index: 0,
             },
+            sent_end_of_input: false,
         }
     }
 }
@@ -166,6 +174,7 @@ pub struct TokenIterator<'a, 'b, TokenType: Token> {
     lexer: &'a Lexer<TokenType>,
     input: &'b str,
     current_pos: TextPoint,
+    sent_end_of_input: bool,
 }
 
 impl<'a, 'b, TokenType: Token> Iterator for TokenIterator<'a, 'b, TokenType> {
@@ -174,6 +183,15 @@ impl<'a, 'b, TokenType: Token> Iterator for TokenIterator<'a, 'b, TokenType> {
     fn next(&mut self) -> Option<TokenType> {
         let next_input = &self.input[self.current_pos.index..];
         if next_input.is_empty() {
+            if !self.sent_end_of_input {
+                // Send an "end of input" token before actually returning None
+                self.sent_end_of_input = true;
+                let end_location = Location {
+                    start: self.current_pos,
+                    end: self.current_pos,
+                };
+                return Some(TokenType::build_end_of_input_token(end_location));
+            }
             return None;
         }
 

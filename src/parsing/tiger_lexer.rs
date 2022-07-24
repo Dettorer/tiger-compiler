@@ -62,6 +62,10 @@ pub enum TigerTokenVariant {
     Comment,
     NewLine,
     WhiteSpace,
+
+    // grammar definition helpers
+    ParseStart,
+    ParseEnd,
 }
 
 impl Symbol for TigerTokenVariant {
@@ -221,6 +225,13 @@ impl Token for TigerToken {
     fn symbol(&self) -> &TigerTokenVariant {
         &self.variant
     }
+
+    fn build_end_of_input_token(location: Location) -> Self {
+        TigerToken {
+            variant: TigerTokenVariant::ParseEnd,
+            location,
+        }
+    }
 }
 
 const TIGER_LEXING_RULES: &[LexerRule<TigerToken>] = {
@@ -319,7 +330,8 @@ const TIGER_LEXING_RULES: &[LexerRule<TigerToken>] = {
 ///
 /// let lexer = build_tiger_lexer();
 /// let token_iterator = lexer.scan("var arr1:arrtype := arrtype [10] of 0");
-/// assert_eq!(token_iterator.count(), 11);
+/// // 11 tokens for the actual input content, then an extra one to signal the end of input.
+/// assert_eq!(token_iterator.count(), 12);
 /// ```
 pub fn build_tiger_lexer() -> Lexer<TigerToken> {
     Lexer::new(TIGER_LEXING_RULES.to_owned())
@@ -335,14 +347,15 @@ mod tests {
     #[test]
     fn empty() {
         let lexer = build_tiger_lexer();
-        assert_eq!(lexer.scan("").count(), 0);
+        // expecting one token: end of input.
+        assert_eq!(lexer.scan("").count(), 1);
     }
 
     fn check_single_string(input: &str, expected: &str) {
         eprintln!("Parsing ```{}```", input);
         let lexer = build_tiger_lexer();
         let token_list = lexer.scan(input).collect::<Vec<TigerToken>>();
-        assert_eq!(token_list.len(), 1);
+        assert_eq!(token_list.len(), 2);
         assert_eq!(
             token_list.get(0).unwrap().variant,
             TigerTokenVariant::StringLiteral(expected.to_string())
@@ -375,12 +388,12 @@ mod tests {
 
     #[test]
     fn test_token_count() {
-        check_token_count("test1.tig", 21);
-        check_token_count("test2.tig", 25);
-        check_token_count("test3.tig", 37);
-        check_token_count("test4.tig", 32);
-        check_token_count("test5.tig", 55);
-        check_token_count("test6.tig", 41);
+        check_token_count("test1.tig", 22);
+        check_token_count("test2.tig", 26);
+        check_token_count("test3.tig", 38);
+        check_token_count("test4.tig", 33);
+        check_token_count("test5.tig", 56);
+        check_token_count("test6.tig", 42);
     }
 
     #[test]
