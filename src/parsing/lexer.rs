@@ -2,7 +2,7 @@
 //! [regex-lexer](https://crates.io/crates/regex-lexer) crate. It essentially works the same way,
 //! with the addition of a [`Location`](Location) attached to each token
 
-use super::{Location, TextPoint, Symbol};
+use super::{Location, Symbol, TextPoint};
 use regex::{Regex, RegexSet};
 
 pub trait Token {

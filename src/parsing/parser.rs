@@ -357,9 +357,8 @@ where
             .iter()
             .all(|expected_symbol| {
                 if expected_symbol.is_terminal() {
-                    dbg!(token_stream.peek().unwrap().symbol(), expected_symbol);
                     match token_stream.next() {
-                        Some(input_token) => dbg!(&input_token.symbol().to_default() == expected_symbol),
+                        Some(input_token) => &input_token.symbol().to_default() == expected_symbol,
                         None => false,
                     }
                 } else {
@@ -565,7 +564,9 @@ mod tests {
             parser.assert_grammar_sets(&expected_nullable, &expected_first, &expected_follow);
         }
 
-        assert!(parser.parse("begin if 2 = 2 then print 1 = 1 else print 0 = 1; print 42 = 1337 end"));
+        assert!(
+            parser.parse("begin if 2 = 2 then print 1 = 1 else print 0 = 1; print 42 = 1337 end")
+        );
 
         // use `print` with a `Num` instead of a full `Expr`
         assert!(!parser.parse("begin if 2 = 2 then print 1 else print 0; print 42 end"));

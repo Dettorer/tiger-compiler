@@ -2,7 +2,7 @@ use std::{error::Error, num::ParseIntError};
 
 use strum::{EnumIter, IntoEnumIterator};
 
-use super::{Lexer, LexerRule, Location, ScanError, Token, Symbol};
+use super::{Lexer, LexerRule, Location, ScanError, Symbol, Token};
 
 /// Every valid token type in the Tiger language grammar. `Comment`, `NewLine` and `WhiteSpace`
 /// aren't technically tokens in the grammar but are used by the lexer to recognize and ignore part
@@ -93,7 +93,6 @@ impl Symbol for TigerTokenVariant {
 }
 
 impl TigerTokenVariant {
-
     /// Parse an array of `u8` as an array of characters representing an integer in decimal and
     /// return the `char` whose ascii code is that integer
     fn parse_ascii_code(digits: &[u8]) -> Result<char, Box<dyn Error>> {
