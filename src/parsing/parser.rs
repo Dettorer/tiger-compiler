@@ -220,7 +220,7 @@ where
 impl<TokenType, SymbolType> Parser<TokenType, SymbolType>
 where
     TokenType: Token<SymbolType = SymbolType>,
-    SymbolType: Symbol + Eq + PartialEq + Hash + Copy + Debug + Display,
+    SymbolType: Symbol + Eq + PartialEq + Hash + Clone + Debug + Display,
 {
     /// Builds a complete LR(1) parser for the given grammar.
     ///
@@ -247,7 +247,7 @@ where
             grammar_rules,
             start_symbol,
             main_symbol,
-            end_symbol,
+            end_symbol: end_symbol.clone(),
 
             nullable_symbols: HashSet::new(),
             first_sets: HashMap::new(),
@@ -280,7 +280,7 @@ where
         let mut first = HashSet::new();
         for symbol in symbols {
             let dummy_sequence = vec![symbol.clone()];
-            first.extend(self.first_sets.get(&dummy_sequence).expect("ICE"));
+            first.extend(self.first_sets.get(&dummy_sequence).expect("ICE").clone());
             if !self.nullable_symbols.contains(&dummy_sequence) {
                 break;
             }
@@ -317,8 +317,8 @@ where
                             item.rhs[item.dot_pos + 1..]
                             .iter()
                             // z
-                            .chain(&[item.lookahead])
-                            .map(|s| *s)
+                            .chain(&[item.lookahead.clone()])
+                            .cloned()
                             .collect();
 
                         // compute FIRST(βz)
@@ -327,7 +327,7 @@ where
                         //* for any ω in FIRST(βz)
                         for lookahead in possible_lookaheads.iter() {
                             something_changed = new_state.items.insert(LRItem {
-                                lhs: *lhs,
+                                lhs: lhs.clone(),
                                 rhs: rhs.clone(),
                                 dot_pos: 0,
                                 lookahead: lookahead.clone(),
@@ -377,10 +377,10 @@ where
         let mut current_states = vec![self.lr_closure(LRState {
             items: HashSet::from([LRItem {
                 // S' -> S$
-                lhs: self.start_symbol,
-                rhs: vec![self.main_symbol, self.end_symbol],
+                lhs: self.start_symbol.clone(),
+                rhs: vec![self.main_symbol.clone(), self.end_symbol.clone()],
                 dot_pos: 0,
-                lookahead: self.end_symbol, // non-important
+                lookahead: self.end_symbol.clone(), // non-important
             }]),
             is_accept: false,
         })];
@@ -395,13 +395,13 @@ where
             for state in &mut current_states {
                 for item in &state.items {
                     if item.dot_pos < item.rhs.len() {
-                        let next_symbol = item.rhs[item.dot_pos];
+                        let next_symbol = item.rhs[item.dot_pos].clone();
                         if next_symbol == self.end_symbol {
                             state.is_accept = true;
                             continue;
                         }
 
-                        let new_state = self.lr_goto(state, next_symbol);
+                        let new_state = self.lr_goto(state, next_symbol.clone());
                         if !working_states.contains(&new_state) {
                             something_changed = true;
                             working_states.push(new_state.clone());
@@ -478,7 +478,7 @@ where
             SymbolType::possible_symbols().filter(|sym| sym.is_terminal() && !sym.is_ignored())
         {
             self.first_sets
-                .entry(vec![variant])
+                .entry(vec![variant.clone()])
                 .or_default()
                 .insert(variant);
         }
@@ -493,11 +493,11 @@ where
                 //* if Y1...Yk are all nullable (or if k = 0)
                 if symbols
                     .iter()
-                    .all(|sym| self.nullable_symbols.contains(&vec![*sym]))
+                    .all(|sym| self.nullable_symbols.contains(&vec![sym.clone()]))
                 {
                     //* then nullable[X] <- true
                     something_changed =
-                        something_changed || self.nullable_symbols.insert(vec![*product]);
+                        something_changed || self.nullable_symbols.insert(vec![product.clone()]);
                 }
 
                 //* for each i from 1 to k, each j from i + 1 to k
@@ -522,7 +522,7 @@ where
 
                             // do the actual extension
                             let old_len = extendee.len();
-                            extendee.extend(extension.iter());
+                            extendee.extend(extension.iter().cloned());
                             let modified = old_len != extendee.len();
 
                             // insert the extended set back
@@ -542,15 +542,15 @@ where
                     if (i == 0
                         || symbols[0..i]
                             .iter()
-                            .all(|sym| self.nullable_symbols.contains(&vec![*sym])))
+                            .all(|sym| self.nullable_symbols.contains(&vec![sym.clone()])))
                         && product != &symbols[i]
                     {
                         //* then FIRST[X] <- FIRST[X] U FIRST[Yi]
                         something_changed = something_changed
                             || extend_parser_set!(
                                 self.first_sets,
-                                vec![*product],
-                                vec![symbols[i]]
+                                vec![product.clone()],
+                                vec![symbols[i].clone()]
                             );
                     }
 
@@ -558,12 +558,16 @@ where
                     if (i == k
                         || symbols[i + 1..=k]
                             .iter()
-                            .all(|sym| self.nullable_symbols.contains(&vec![*sym])))
+                            .all(|sym| self.nullable_symbols.contains(&vec![sym.clone()])))
                         && product != &symbols[i]
                     {
                         //* then FOLLOW[Yi] <- FOLLOW[Yi] U FOLLOW[X]
                         something_changed = something_changed
-                            || extend_parser_set!(self.follow_sets, symbols[i], *product);
+                            || extend_parser_set!(
+                                self.follow_sets,
+                                symbols[i].clone(),
+                                product.clone()
+                            );
                     }
 
                     for j in (i + 1)..=k {
@@ -571,7 +575,7 @@ where
                         if i + 1 == j
                             || symbols[i + 1..j]
                                 .iter()
-                                .all(|sym| self.nullable_symbols.contains(&vec![*sym]))
+                                .all(|sym| self.nullable_symbols.contains(&vec![sym.clone()]))
                         {
                             //* then FOLLOW[Yi] <- FOLLOW[Yi] U FIRST[Yj]
                             // XXX: The macro isn't really useful here since the sets are different
@@ -582,9 +586,9 @@ where
                             something_changed = something_changed
                                 || extend_parser_set!(
                                     self.follow_sets,
-                                    symbols[i],
+                                    symbols[i].clone(),
                                     self.first_sets,
-                                    vec![symbols[j]]
+                                    vec![symbols[j].clone()]
                                 );
                         }
                     }
@@ -592,7 +596,7 @@ where
                     //* a string γ is nullable if each symbol in γ is nullable
                     if symbols[i..=k]
                         .iter()
-                        .all(|sym| self.nullable_symbols.contains(&vec![*sym]))
+                        .all(|sym| self.nullable_symbols.contains(&vec![sym.clone()]))
                     {
                         something_changed = something_changed
                             || self.nullable_symbols.insert(symbols[i..=k].to_owned());
@@ -604,9 +608,9 @@ where
                         || extend_parser_set!(
                             self.first_sets,
                             symbols[i..=k].to_owned(),
-                            vec![symbols[i]]
+                            vec![symbols[i].clone()]
                         );
-                    if self.nullable_symbols.contains(&vec![symbols[i]]) {
+                    if self.nullable_symbols.contains(&vec![symbols[i].clone()]) {
                         something_changed = something_changed
                             || extend_parser_set!(
                                 self.first_sets,
@@ -626,12 +630,12 @@ where
             for item in &state.items {
                 let (transition, action) =
                     if state.is_accept && item.rhs[item.dot_pos] == self.end_symbol {
-                        (item.lookahead, ParseAction::Accept)
+                        (item.lookahead.clone(), ParseAction::Accept)
                     } else if item.dot_pos == item.rhs.len() {
                         (
-                            item.lookahead,
+                            item.lookahead.clone(),
                             ParseAction::Reduce(GrammarRule {
-                                lhs: item.lhs,
+                                lhs: item.lhs.clone(),
                                 rhs: item.rhs.clone(),
                             }),
                         )
@@ -653,11 +657,14 @@ where
                             .dst;
                         if item.rhs[item.dot_pos].is_terminal() {
                             (
-                                item.rhs[item.dot_pos],
+                                item.rhs[item.dot_pos].clone(),
                                 ParseAction::Shift(destination_state),
                             )
                         } else {
-                            (item.rhs[item.dot_pos], ParseAction::Goto(destination_state))
+                            (
+                                item.rhs[item.dot_pos].clone(),
+                                ParseAction::Goto(destination_state),
+                            )
                         }
                     };
 
@@ -671,7 +678,7 @@ where
                 let mut conflicting_present_action: Option<ParseAction<SymbolType>> = None;
 
                 let new_action = self.parsing_table[i]
-                    .entry(transition)
+                    .entry(transition.clone())
                     .and_modify(|existing_action| {
                         if *existing_action != action {
                             // Save the conflicting actions for later reporting and use
@@ -709,7 +716,7 @@ where
         text_representation += "    ";
         for symbol in SymbolType::possible_symbols()
             .filter(SymbolType::is_terminal)
-            .chain(std::iter::once(self.start_symbol)) // XXX: hack to mark the terminal/non-terminal separation
+            .chain(std::iter::once(self.start_symbol.clone())) // XXX: hack to mark the terminal/non-terminal separation
             .chain(
                 SymbolType::possible_symbols()
                     .filter(|sym| *sym != self.start_symbol && SymbolType::is_non_terminal(sym)),
@@ -734,7 +741,7 @@ where
             for symbol in
                 SymbolType::possible_symbols()
                     .filter(SymbolType::is_terminal)
-                    .chain(std::iter::once(self.start_symbol)) // XXX: hack to mark the terminal/non-terminal separation
+                    .chain(std::iter::once(self.start_symbol.clone())) // XXX: hack to mark the terminal/non-terminal separation
                     .chain(SymbolType::possible_symbols().filter(|sym| {
                         *sym != self.start_symbol && SymbolType::is_non_terminal(sym)
                     }))
@@ -781,10 +788,11 @@ where
                     // Push the token to the stack and go to the table-indicated state
                     parse_stack.push((
                         *state,
-                        *token_stream
+                        token_stream
                             .next()
                             .ok_or("ICE: peeked a token but cannot advance the iterator")?
-                            .symbol(),
+                            .symbol()
+                            .clone(),
                     ));
                     current_state = *state;
                 }
@@ -814,7 +822,7 @@ where
                         &self.parsing_table[return_state][&rule.lhs]
                     {
                         current_state = *goto_state;
-                        parse_stack.push((current_state, rule.lhs));
+                        parse_stack.push((current_state, rule.lhs.clone()));
                     } else {
                         return Err("ICE: no goto action after we reduce a rule".to_string());
                     }
