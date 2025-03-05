@@ -1436,4 +1436,169 @@ mod tests {
         assert!(parser.parse("***x=x") == Ok(true));
         assert!(parser.parse("x*=x") == Ok(false));
     }
+
+    // Parsing the grammar 3.30 in Andrew Appel's book (page 68)
+    // WIP
+    #[derive(Debug, PartialEq, Hash, Eq, EnumIter, Clone)]
+    enum G330Symbol {
+        // Terminal symbols
+        Id(String),
+        Assign,
+        While,
+        Do,
+        Begin,
+        End,
+        If,
+        Then,
+        Else,
+        Semicolon,
+        WhiteSpace,
+
+        // Non-terminal symbols
+        S,
+        L,
+
+        // Special symbols
+        ParseStart, // the "P" symbol in the book
+        ParseEnd,
+    }
+
+    impl Symbol for G330Symbol {
+        type ValueIterator = G330SymbolIter;
+        fn is_terminal(&self) -> bool {
+            use G330Symbol::*;
+            !matches!(*self, ParseStart | S | L)
+        }
+
+        fn is_ignored(&self) -> bool {
+            *self == G330Symbol::WhiteSpace
+        }
+
+        fn possible_symbols() -> G330SymbolIter {
+            Self::iter()
+        }
+
+        fn to_default(&self) -> Self {
+            if let Self::Id(_) = self {
+                Self::Id(Default::default())
+            } else {
+                self.clone()
+            }
+        }
+    }
+
+    impl Display for G330Symbol {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            use G330Symbol::*;
+            match self {
+                Id(name) => write!(f, "Id({})", name),
+                Assign => write!(f, ":="),
+                While => write!(f, "while"),
+                Do => write!(f, "do"),
+                Begin => write!(f, "begin"),
+                End => write!(f, "end"),
+                If => write!(f, "if"),
+                Then => write!(f, "then"),
+                Else => write!(f, "else"),
+                Semicolon => write!(f, ";"),
+                WhiteSpace => write!(f, " "),
+                S => write!(f, "S"),
+                L => write!(f, "L"),
+                ParseStart => write!(f, "S'"),
+                ParseEnd => write!(f, "$"),
+            }
+        }
+    }
+
+    struct G330Token {
+        symbol: G330Symbol,
+        location: Location,
+    }
+
+    impl G330Token {
+        pub fn new(symbol: G330Symbol, location: Location) -> Self {
+            assert!(
+                symbol.is_terminal(),
+                "cannot create a token with non-terminal symbol {:?}",
+                symbol
+            );
+            G330Token { symbol, location }
+        }
+    }
+
+    impl Token for G330Token {
+        type SymbolType = G330Symbol;
+
+        fn is_ignored(&self) -> bool {
+            self.symbol.is_ignored()
+        }
+
+        fn symbol(&self) -> &Self::SymbolType {
+            &self.symbol
+        }
+
+        fn build_end_of_input_token(location: Location) -> Self {
+            G330Token {
+                symbol: G330Symbol::ParseEnd,
+                location,
+            }
+        }
+    }
+
+    const G330_LEXING_RULES: &[LexerRule<G330Token>] = {
+        use G330Symbol::*;
+        &[
+            (r"^[[:alpha:]][[:alnum:]_]*", |loc, matched_text| {
+                G330Token::new(Id(matched_text.to_string()), loc)
+            }),
+            (r":=", |loc, _| G330Token::new(Assign, loc)),
+            (r"while", |loc, _| G330Token::new(While, loc)),
+            (r"do", |loc, _| G330Token::new(Do, loc)),
+            (r"begin", |loc, _| G330Token::new(Begin, loc)),
+            (r"end", |loc, _| G330Token::new(End, loc)),
+            (r"if", |loc, _| G330Token::new(If, loc)),
+            (r"then", |loc, _| G330Token::new(Then, loc)),
+            (r"else", |loc, _| G330Token::new(Else, loc)),
+            (r";", |loc, _| G330Token::new(Semicolon, loc)),
+            (r" ", |loc, _| G330Token::new(WhiteSpace, loc)),
+        ]
+    };
+
+    #[test]
+    // this test only checks that the parser builds successfully
+    // rejects some inputs
+    fn parse_g330_grammar() {
+        let grammar_rules: GrammarRules<G330Symbol> = {
+            use G330Symbol::*;
+            macro_rules! dId {
+                () => {
+                    Id(Default::default())
+                };
+            }
+            gen_grammar_rules!(
+                ParseStart -> L,
+                S -> dId!() Assign dId!(),
+                S -> While dId!() Do S,
+                S -> Begin L End,
+                S -> If dId!() Then S,
+                S -> If dId!() Then S Else S,
+                L -> S,
+                L -> L Semicolon S,
+            )
+        };
+
+        let parser = Parser::new(
+            G330_LEXING_RULES.to_owned(),
+            grammar_rules,
+            G330Symbol::ParseStart,
+            G330Symbol::L,
+            G330Symbol::ParseEnd,
+        )
+        .unwrap();
+
+        println!("{}", parser.dfa_to_dot());
+        println!("{}", parser.parsing_table_to_string());
+        assert!(parser.parse("if test then a := b else b := a") == Ok(true));
+        assert!(parser.parse("if test then a := b") == Ok(true));
+    }
 }
